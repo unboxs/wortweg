@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23f59e0b'/><text x='16' y='23' font-size='18' text-anchor='middle' font-family='Segoe UI,sans-serif' font-weight='700' fill='%2318181b'>W</text></svg>"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Wortweg — 以 Goldlist 蒸馏法为核心的德语 B2 词汇工具" />
+    <title>Wortweg · 德语词汇蒸馏</title>
+    <script>
+      // 防闪烁：从持久化数据里读取主题偏好（默认深色）
+      try {
+        var s = JSON.parse(localStorage.getItem('wortweg-storage') || 'null')
+        if (s && s.state && s.state.settings && s.state.settings.theme === 'light')
+          document.documentElement.classList.remove('dark')
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
