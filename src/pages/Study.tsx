@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
   ArrowLeft,
   ArrowRight,
   BookOpen,
+  Check,
   Gem,
   Headphones,
+  Hash,
   PlusCircle,
   RefreshCw,
   Shuffle,
@@ -19,15 +21,24 @@ import { useSpeech } from '../hooks/useSpeech'
 import { normalizeDe } from '../lib/goldlist'
 import { BANK } from '../data/bank'
 import { Bar } from '../components/ui'
+import NumberTrainer from '../components/NumberTrainer'
 
 /**
  * 学习区（全屏沉浸）：冷却期里唯一该待的地方。
- * 温习已掌握词 → 强化长期记忆；探索词库 → 精听生词、读完可一键建 Headlist。
+ * 温习已掌握词 → 强化长期记忆；探索词库 → 精听生词、读完可一键建 Headlist；
+ * 数字训练 → 整合自 GermanLearn 项目。
  * 刻意不含"冷却中的列表"——保护 Goldlist 的自然遗忘筛选。
- * 无 XP、无判断、无压力：读、听、走。
+ * 无 XP、无判断：读、听、写。
+ *
+ * 抄写门槛：每个词必须亲手写下来才能翻到下一个 —— 动觉记忆是
+ * Goldlist"手抄"仪式的核心，在数字界面里用打字还原。
+ *
+ * 卡片切换用"只进不出"动画：AnimatePresence mode="wait" 依赖退场完成回调，
+ * 在失焦/后台窗口会永久卡死（Chromium 节流动画时钟）；新内容直接挂载 +
+ * 淡入，任何时钟条件下都不会卡。
  */
 
-type Mode = 'review' | 'explore'
+type Mode = 'review' | 'explore' | 'numbers'
 
 interface StudyCard {
   german: string
@@ -46,6 +57,17 @@ function shuffle<T>(arr: T[]): T[] {
   return a
 }
 
+/** 抄写比对：忽略大小写、ä/ae 等变音写法与标点（词库含 "…" 句型，必须能打） */
+const transcribed = (typed: string, german: string): boolean => {
+  const norm = (s: string) => normalizeDe(s).replace(/[^a-z0-9 ]/g, '').trim()
+  return norm(typed) !== '' && norm(typed) === norm(german)
+}
+
+const typingIn = (e: KeyboardEvent): boolean => {
+  const t = e.target as HTMLElement | null
+  return !!t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')
+}
+
 export default function Study() {
   const nav = useNavigate()
   const lists = useStore((s) => s.lists)
@@ -58,6 +80,9 @@ export default function Study() {
   const [pool, setPool] = useState<StudyCard[]>([])
   const [idx, setIdx] = useState(0)
   const [finished, setFinished] = useState(false)
+  // 抄写门槛：已抄写的下标集合；翻页必须先抄写当前词
+  const [written, setWritten] = useState<Set<number>>(() => new Set())
+  const [typed, setTyped] = useState('')
 
   const mastered = useMemo(() => lists.flatMap((l) => l.entries).filter((e) => e.mastered), [lists])
   const used = useMemo(() => new Set(lists.flatMap((l) => l.entries.map((e) => normalizeDe(e.german)))), [lists])
@@ -67,6 +92,8 @@ export default function Study() {
     setPool(shuffle(mastered).slice(0, 25))
     setIdx(0)
     setFinished(false)
+    setWritten(new Set())
+    setTyped('')
   }
 
   const startExplore = (themeId: string) => {
@@ -78,22 +105,50 @@ export default function Study() {
     setPool(shuffle(fresh).slice(0, 25))
     setIdx(0)
     setFinished(false)
+    setWritten(new Set())
+    setTyped('')
   }
 
   const card = pool[idx]
   const catName = theme ? BANK.find((c) => c.id === theme)?.name : null
+  const canAdvance = !!card && (written.has(idx) || transcribed(typed, card.german))
 
   // 每个词出现时自动朗读
   useEffect(() => {
-    if (!card || finished) return
+    if (!card || finished || mode === 'numbers') return
     if (settings.autoSpeak) speak(card.german)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, card?.german, finished])
 
-  // 键盘：→ 下一词，← 上一词，S 朗读，D 慢速
+  const go = (dir: 1 | -1) => {
+    if (dir === 1) {
+      if (!card || !canAdvance) return
+      if (!written.has(idx)) setWritten((prev) => new Set(prev).add(idx))
+      const next = idx + 1
+      if (next >= pool.length) {
+        setFinished(true)
+        return
+      }
+      setIdx(next)
+      setTyped('')
+    } else {
+      if (idx === 0) return
+      setIdx(idx - 1)
+      setTyped('')
+    }
+  }
+
+  // 键盘：Enter 抄写后翻词；← →；S/D 朗读。正在输入时只响应 Enter。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!card || finished) return
+      if (typingIn(e)) {
+        if (e.key === 'Enter' && canAdvance) {
+          e.preventDefault()
+          go(1)
+        }
+        return
+      }
       if (e.key === 'ArrowRight') go(1)
       else if (e.key === 'ArrowLeft') go(-1)
       else if (e.key.toLowerCase() === 's') speak(card.german)
@@ -102,17 +157,7 @@ export default function Study() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, card, finished, settings.slowRate])
-
-  const go = (dir: 1 | -1) => {
-    const next = idx + dir
-    if (next < 0) return
-    if (next >= pool.length) {
-      setFinished(true)
-      return
-    }
-    setIdx(next)
-  }
+  }, [idx, card, finished, canAdvance, settings.slowRate])
 
   const createFromExplore = () => {
     if (!theme || pool.length === 0) return
@@ -126,6 +171,9 @@ export default function Study() {
     const id = createList(cat ? `Headlist · ${cat.name}` : 'Headlist', seeds, theme)
     nav(`/lists/${id}`)
   }
+
+  // ── 数字训练（整合自 GermanLearn）──
+  if (mode === 'numbers') return <NumberTrainer onExit={() => setMode(null)} />
 
   // ── 模式选择 ──
   if (!mode)
@@ -151,7 +199,7 @@ export default function Study() {
               <Gem size={16} className="text-amber-500 dark:text-amber-300" /> 温习已掌握的词
             </div>
             <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
-              随机抽 25 个已入册的词读一遍、听一遍 —— 只巩固，不测验。已掌握 {mastered.length} 词。
+              随机抽 25 个已入册的词，逐词朗读 + 抄写 —— 只巩固，不测验。已掌握 {mastered.length} 词。
             </p>
           </button>
 
@@ -160,7 +208,7 @@ export default function Study() {
               <BookOpen size={16} className="text-amber-500 dark:text-amber-300" /> 探索词库
             </div>
             <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
-              精听一个主题里你还没学过的词；读完可一键把这批词建成下一份 Headlist。
+              精听一个主题里你还没学过的词；每个词都要抄写下来，读完可一键建成下一份 Headlist。
             </p>
             <div className="mt-4 flex flex-wrap gap-1.5">
               {BANK.map((c) => {
@@ -184,8 +232,18 @@ export default function Study() {
             </div>
           </div>
 
+          <button onClick={() => setMode('numbers')} className="card block w-full p-5 text-left transition hover:border-amber-400/60">
+            <div className="flex items-center gap-2 font-semibold">
+              <Hash size={16} className="text-amber-500 dark:text-amber-300" /> 数字训练
+            </div>
+            <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+              听音辨数 · 看数写词 · 数字串听力（电话号码式）· 数字表 · 0–9999 任意数字合成发音。
+            </p>
+          </button>
+
           <p className="px-2 text-center text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-600">
-            冷却中的列表刻意不在这里出现 —— 那 14 天的"想不起来"正是 Goldlist 在工作的声音。
+            温习与探索都要亲手抄写每个词 —— 动觉记忆是吸收的一部分。
+            冷却中的列表刻意不在这里出现，那 14 天的"想不起来"正是 Goldlist 在工作的声音。
           </p>
         </motion.div>
       </div>
@@ -201,7 +259,7 @@ export default function Study() {
               <Gem size={26} className="mx-auto mb-3 text-amber-500 dark:text-amber-300" />
               <h1 className="text-xl font-bold tracking-tight">温习完成</h1>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                又读了一遍 {pool.length} 个已入册的词 —— 长期记忆需要偶尔浇浇水。
+                又亲手写了一遍 {pool.length} 个已入册的词 —— 长期记忆需要偶尔浇浇水。
               </p>
               <div className="mt-6 flex gap-2">
                 <button className="btn btn-ghost flex-1" onClick={() => nav('/')}>
@@ -215,9 +273,9 @@ export default function Study() {
           ) : (
             <>
               <BookOpen size={26} className="mx-auto mb-3 text-amber-500 dark:text-amber-300" />
-              <h1 className="text-xl font-bold tracking-tight">读完了这批生词</h1>
+              <h1 className="text-xl font-bold tracking-tight">这批生词抄完了</h1>
               <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
-                {pool.length} 个「{catName}」新词听了一遍。喜欢的话，把它们变成下一份 Headlist。
+                {pool.length} 个「{catName}」新词听了一遍、写了一遍。喜欢的话，把它们变成下一份 Headlist。
               </p>
               <div className="mt-6 space-y-2">
                 <button className="btn btn-gold w-full" onClick={createFromExplore} disabled={pool.length === 0}>
@@ -250,6 +308,7 @@ export default function Study() {
             {mode === 'review' ? '温习' : `探索 · ${catName}`} · {idx + 1} / {pool.length}
           </span>
           <Bar pct={(idx + 1) / pool.length} gold />
+          <span className="text-xs tabular-nums text-amber-500 dark:text-amber-300">{written.size} 已抄写</span>
         </div>
       </div>
 
@@ -267,31 +326,49 @@ export default function Study() {
         </div>
       ) : (
         <>
-          <div className="flex flex-1 items-center justify-center px-5 py-8">
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={card.german}
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -14 }}
-                transition={{ duration: 0.22 }}
-                className="w-full max-w-xl text-center"
-              >
-                <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{card.german}</h2>
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-4">
-                  <div className="text-lg text-zinc-500 dark:text-zinc-400">{card.zh}</div>
-                  {card.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{card.example}“</div>}
-                </motion.div>
-                <div className="mt-7 flex items-center justify-center gap-3">
-                  <button onClick={() => speak(card.german)} className="btn btn-gold h-11 w-11 rounded-full px-0">
-                    <Volume2 size={18} />
-                  </button>
-                  <button onClick={() => speak(card.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
-                    <Turtle size={17} />
-                  </button>
-                </div>
+          <div className="flex flex-1 items-center justify-center px-5 py-6">
+            {/* 只进不出：新卡立即挂载淡入，无退场完成依赖，不会卡死 */}
+            <motion.div
+              key={card.german}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22 }}
+              className="w-full max-w-xl text-center"
+            >
+              <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{card.german}</h2>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-4">
+                <div className="text-lg text-zinc-500 dark:text-zinc-400">{card.zh}</div>
+                {card.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{card.example}“</div>}
               </motion.div>
-            </AnimatePresence>
+
+              {/* 抄写门槛：写下来，才能翻页 */}
+              <div className="mx-auto mt-6 flex max-w-xs items-center gap-2">
+                <input
+                  autoFocus
+                  className="input text-center font-mono"
+                  placeholder={written.has(idx) ? '已抄写 ✓ —— Enter 翻词' : '把这个词抄写下来…'}
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && canAdvance) go(1)
+                  }}
+                />
+                {canAdvance && (
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }}>
+                    <Check size={20} className="text-amber-400" strokeWidth={3} />
+                  </motion.span>
+                )}
+              </div>
+
+              <div className="mt-5 flex items-center justify-center gap-3">
+                <button onClick={() => speak(card.german)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+                  <Volume2 size={18} />
+                </button>
+                <button onClick={() => speak(card.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+                  <Turtle size={17} />
+                </button>
+              </div>
+            </motion.div>
           </div>
 
           <div className="px-5 pb-8">
@@ -299,13 +376,18 @@ export default function Study() {
               <button onClick={() => go(-1)} disabled={idx === 0} className="btn btn-ghost h-14 flex-1 text-base">
                 <ArrowLeft size={17} /> 上一词
               </button>
-              <button onClick={() => go(1)} className="btn btn-gold h-14 flex-1 text-base">
+              <button
+                onClick={() => go(1)}
+                disabled={!canAdvance}
+                className="btn btn-gold h-14 flex-1 text-base"
+                title={canAdvance ? undefined : '先抄写这个词才能继续'}
+              >
                 {idx + 1 === pool.length ? '完成' : '下一词'} <ArrowRight size={17} />
               </button>
             </div>
             <p className="mt-3 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
-              只读、只听、不判断 —— <span className="kbd">←</span> <span className="kbd">→</span> 翻词
-              <span className="kbd ml-1">S</span> 朗读 <span className="kbd">D</span> 慢速
+              {canAdvance ? 'Enter / → 翻词' : '把这个词写下来才能翻页（ä 可输 ae，标点随意）'}
+              {' '}—— <span className="kbd">S</span> 朗读 <span className="kbd">D</span> 慢速
             </p>
           </div>
         </>

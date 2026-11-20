@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Flame, Headphones, LayoutDashboard, List as ListIcon, Moon, PlusCircle, Settings as SettingsIcon, Sun, TrendingUp } from 'lucide-react'
 import { useStore } from '../store'
 import { levelProgress } from '../lib/xp'
@@ -121,18 +121,16 @@ export default function Layout() {
 
       {/* ── 内容 ── */}
       <div className="md:pl-60">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.main
-            key={pathname}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18 }}
-            className="mx-auto w-full max-w-5xl px-4 pb-28 pt-6 md:px-8 md:pb-16 md:pt-8"
-          >
-            <Outlet />
-          </motion.main>
-        </AnimatePresence>
+        {/* 只进不出：路由切换立即挂载淡入（mode="wait" 在失焦窗口会永久卡死） */}
+        <motion.main
+          key={pathname}
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.18 }}
+          className="mx-auto w-full max-w-5xl px-4 pb-28 pt-6 md:px-8 md:pb-16 md:pt-8"
+        >
+          <Outlet />
+        </motion.main>
       </div>
 
       {/* ── 移动端底部导航 ── */}

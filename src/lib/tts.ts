@@ -76,10 +76,10 @@ export function speak(
   })
 }
 
-/** 顺序朗读多段文本（整列表自动朗读），可随时 stopAll */
+/** 顺序朗读多段文本（整列表自动朗读 / 数字串训练），可随时 stopAll */
 export async function speakSequence(
   texts: string[],
-  opts: { rate?: number; voiceURI?: string; onIndex?: (i: number) => void } = {},
+  opts: { rate?: number; voiceURI?: string; gapMs?: number; onIndex?: (i: number) => void } = {},
 ): Promise<void> {
   const my = ++token
   for (let i = 0; i < texts.length; i++) {
@@ -87,5 +87,6 @@ export async function speakSequence(
     opts.onIndex?.(i)
     await speak(texts[i], opts)
     if (my !== token) return
+    if (opts.gapMs && i < texts.length - 1) await new Promise((r) => setTimeout(r, opts.gapMs))
   }
 }

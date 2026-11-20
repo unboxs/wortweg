@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { ArrowRight, Check, FlaskConical, Gem, PenLine, Turtle, TrendingUp, Volume2, X } from 'lucide-react'
 import { useStore } from '../store'
 import { useSpeech } from '../hooks/useSpeech'
@@ -48,10 +48,12 @@ export default function Distill() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, idx, entry?.id, result])
 
-  // 键盘：空格 = 记住了，N = 还没，S = 朗读，D = 慢速
+  // 键盘：空格 = 记住了，N = 还没，S = 朗读，D = 慢速。抄写输入框内不触发。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!started || result || !entry) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return
       if (e.key === ' ') {
         e.preventDefault()
         judge(true)
@@ -147,15 +149,14 @@ export default function Distill() {
 
       {/* 卡片 */}
       <div className="flex flex-1 items-center justify-center px-5 py-8">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={entry.id}
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -14 }}
-            transition={{ duration: 0.22 }}
-            className="w-full max-w-xl text-center"
-          >
+        {/* 只进不出：新卡立即挂载淡入，无退场完成依赖（mode="wait" 在失焦窗口会永久卡死） */}
+        <motion.div
+          key={entry.id}
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.22 }}
+          className="w-full max-w-xl text-center"
+        >
             <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
 
             {/* 释义稍后浮现 —— 被动吸收，不逼抢答 */}
@@ -187,17 +188,15 @@ export default function Distill() {
                   value={typed}
                   onChange={(e) => setTyped(e.target.value)}
                 />
-                <AnimatePresence>
-                  {typedOk && (
-                    <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }}>
-                      <Check size={20} className="text-amber-400" strokeWidth={3} />
-                    </motion.span>
-                  )}
-                </AnimatePresence>
+                {/* 不用嵌套 AnimatePresence：外层 mode="wait" 会等嵌套退场而卡死 */}
+                {typedOk && (
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }}>
+                    <Check size={20} className="text-amber-400" strokeWidth={3} />
+                  </motion.span>
+                )}
               </div>
             )}
           </motion.div>
-        </AnimatePresence>
       </div>
 
       {/* 判断按钮 */}
