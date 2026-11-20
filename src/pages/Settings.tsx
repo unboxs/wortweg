@@ -120,6 +120,13 @@ export default function Settings() {
             <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
               语音列表来自你的操作系统/浏览器。Windows 推荐安装德语语音包以获得最佳音质。
             </p>
+            {voices.length === 0 && (
+              <p className="mt-1.5 text-[11px] leading-relaxed text-red-500 dark:text-red-400">
+                当前没有可用的德语语音（所以朗读会被静默跳过）。安装方法：Windows 设置 →
+                时间和语言 → 语言 → 添加德语，勾选"语音转换/文本转语音"组件，然后重启浏览器。
+                Edge 浏览器自带微软在线德语语音，可直接使用。
+              </p>
+            )}
           </div>
           <div className="grid gap-5 sm:grid-cols-2">
             <div>

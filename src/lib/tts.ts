@@ -1,11 +1,14 @@
 // ─── TTS：Web Speech API（免密钥、离线可用、德语优先） ──────────────────
 //shortcut: 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声
 
+import { useStore } from '../store'
+
 type VoicePick = SpeechSynthesisVoice | null
 
 let voices: SpeechSynthesisVoice[] = []
 let preferred: VoicePick = null
 let token = 0 // 播放队列的取消令牌
+let warnedNoGerman = false
 
 export const ttsSupported = () =>
   typeof window !== 'undefined' && 'speechSynthesis' in window
@@ -45,25 +48,50 @@ export function resolveVoice(voiceURI: string): VoicePick {
   return preferred
 }
 
+/** 惰性补一次语音列表（Chrome 首次同步取列表可能为空） */
+function refreshVoices(): void {
+  const list = window.speechSynthesis.getVoices()
+  if (list.length > 0 && list.length !== voices.length) {
+    voices = list
+    preferred = pickGerman()
+  }
+}
+
+function warnNoGermanVoice(): void {
+  if (warnedNoGerman) return
+  warnedNoGerman = true
+  useStore.getState().pushToast({
+    kind: 'goal',
+    title: '未检测到德语语音',
+    desc: 'Windows：设置 → 时间和语言 → 添加德语（勾选语音包）后重启浏览器；或改用 Edge',
+  })
+}
+
 export function stopSpeaking(): void {
   if (!ttsSupported()) return
   token++
   window.speechSynthesis.cancel()
 }
 
-/** 朗读一段德语文本；resolve 在朗读结束/取消时触发 */
+/** 朗读一段德语文本；resolve 在朗读结束/取消时触发。
+ *  没有可用德语语音时拒绝发声并提示安装——绝不用错误语言的嗓音读德语。 */
 export function speak(
   text: string,
   opts: { rate?: number; voiceURI?: string } = {},
 ): Promise<void> {
-  if (!ttsSupported()) return Promise.resolve()
+  if (!ttsSupported() || !text.trim()) return Promise.resolve()
+  if (!voices.length) refreshVoices()
+  const v = resolveVoice(opts.voiceURI ?? '')
+  if (!v) {
+    warnNoGermanVoice()
+    return Promise.resolve()
+  }
   stopSpeaking()
   const my = ++token
   return new Promise((resolve) => {
     const u = new SpeechSynthesisUtterance(text)
-    const v = resolveVoice(opts.voiceURI ?? '')
-    if (v) u.voice = v
-    u.lang = v?.lang ?? 'de-DE'
+    u.voice = v
+    u.lang = v.lang
     u.rate = opts.rate ?? 1
     u.onend = () => resolve()
     u.onerror = () => resolve()
