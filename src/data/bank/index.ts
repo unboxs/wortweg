@@ -1,4 +1,4 @@
-// 内置词库聚合。A1/A2 在前（新手第一眼），B1–B2 主题随后。
+// 内置词库聚合。A1/A2 在前（新手第一眼），B1–B2 主题随后，教材词表（dychb.pdf）殿后。
 import a1 from './a1'
 import a2 from './a2'
 import alltag from './alltag'
@@ -14,6 +14,7 @@ import umwelt from './umwelt'
 import zeit from './zeit'
 import verben from './verben'
 import wendungen from './wendungen'
+import { JIAOCAI } from './jiaocai'
 import type { BankCategory } from '../../types'
 
 export const BANK: BankCategory[] = [
@@ -32,6 +33,7 @@ export const BANK: BankCategory[] = [
   zeit,
   verben,
   wendungen,
+  ...JIAOCAI,
 ]
 
 export const BANK_TOTAL = BANK.reduce((s, c) => s + c.entries.length, 0)

@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "bank:check": "node scripts/bank-check.cjs",
-    "numbers:check": "node scripts/numbers-check.ts"
+    "numbers:check": "node scripts/numbers-check.ts",
+    "pdf:import": "node scripts/pdf-dump.cjs && node scripts/pdf-import.cjs"
   },
   "dependencies": {
     "framer-motion": "^12.0.0",
@@ -24,6 +25,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",
+    "pdf-parse": "^2.4.5",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2",
     "vite": "^6.0.0"

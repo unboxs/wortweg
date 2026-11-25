@@ -3,3 +3,6 @@ dist/
 *.local
 .DS_Store
 Thumbs.db
+# 教材词汇表原始材料（版权内容，不入库；本地重导入时放回项目根目录即可）
+dychb.pdf
+scripts/dychb.txt
