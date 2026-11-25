@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BookOpen, Gem, Headphones, Hash, Link2, PlusCircle, RefreshCw, Shuffle, X } from 'lucide-react'
+import { BookOpen, Gem, Headphones, Hash, Keyboard, Link2, PlusCircle, RefreshCw, Shuffle, X } from 'lucide-react'
 import { useStore, type NewEntrySeed } from '../store'
 import { useSpeech } from '../hooks/useSpeech'
 import { normalizeDe } from '../lib/goldlist'
@@ -11,6 +11,7 @@ import { Bar } from '../components/ui'
 import NumberTrainer from '../components/NumberTrainer'
 import MatchGame from '../components/MatchGame'
 import ExerciseCard from '../components/ExerciseCard'
+import SpellDictation from '../components/SpellDictation'
 
 /**
  * 学习区（全屏沉浸）：冷却期里唯一该待的地方。
@@ -20,7 +21,7 @@ import ExerciseCard from '../components/ExerciseCard'
  * 卡片切换用"只进不出"动画（mode="wait" 在失焦窗口会永久卡死）。
  */
 
-type Mode = 'review' | 'explore' | 'match' | 'numbers'
+type Mode = 'review' | 'explore' | 'match' | 'spell' | 'numbers'
 
 interface StudyCard {
   german: string
@@ -78,7 +79,7 @@ export default function Study() {
 
   // 自动朗读：只对不泄题的题型（抄写/听写）
   useEffect(() => {
-    if (!card || finished || !ex || mode === 'numbers' || mode === 'match') return
+    if (!card || finished || !ex || mode === 'numbers' || mode === 'match' || mode === 'spell') return
     if (settings.autoSpeak && ex.speakOnEnter) speak(card.german)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, card?.german, finished])
@@ -103,7 +104,7 @@ export default function Study() {
   // 键盘：→ 在已解出时可翻词；← 回看；S/D 朗读。正在输入时忽略。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!card || finished || mode === 'numbers' || mode === 'match') return
+      if (!card || finished || mode === 'numbers' || mode === 'match' || mode === 'spell') return
       if (typingIn(e)) return
       if (e.key === 'ArrowRight') advance(false)
       else if (e.key === 'ArrowLeft') {
@@ -132,6 +133,7 @@ export default function Study() {
   // ── 独立模式 ──
   if (mode === 'numbers') return <NumberTrainer onExit={() => setMode(null)} />
   if (mode === 'match') return <MatchGame onExit={() => setMode(null)} />
+  if (mode === 'spell') return <SpellDictation onExit={() => setMode(null)} />
 
   // ── 模式选择 ──
   if (!mode)
@@ -196,6 +198,15 @@ export default function Study() {
             </div>
             <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
               左词右义点选配对，一轮 4 词。优先配已掌握的词，不够则从词库抽新词。
+            </p>
+          </button>
+
+          <button onClick={() => setMode('spell')} className="card block w-full p-5 text-left transition hover:border-amber-400/60">
+            <div className="flex items-center gap-2 font-semibold">
+              <Keyboard size={16} className="text-amber-500 dark:text-amber-300" /> 字母听写
+            </div>
+            <p className="mt-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+              播放单词的逐字母拼写（be, ce, eff, jot…），写下听到的词 —— 练德语字母名。词源优先用你已掌握的词。
             </p>
           </button>
 
