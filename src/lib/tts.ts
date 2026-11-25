@@ -73,6 +73,26 @@ export function stopSpeaking(): void {
   window.speechSynthesis.cancel()
 }
 
+/** 发出一条话语并等待结束：纯排队，不取消、不动令牌（序列内部复用） */
+function utter(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
+  return new Promise((resolve) => {
+    const u = new SpeechSynthesisUtterance(text)
+    const v = resolveVoice(opts.voiceURI ?? '')
+    if (v) {
+      u.voice = v
+      u.lang = v.lang
+    }
+    u.rate = opts.rate ?? 1
+    u.onend = () => resolve()
+    u.onerror = () => resolve()
+    window.speechSynthesis.speak(u)
+    // 兜底：引擎静默失败 3.5s 后 resolve，避免 UI 卡住
+    window.setTimeout(() => {
+      if (!window.speechSynthesis.speaking) resolve()
+    }, 3500)
+  })
+}
+
 /** 朗读一段德语文本；resolve 在朗读结束/取消时触发。
  *  没有可用德语语音时拒绝发声并提示安装——绝不用错误语言的嗓音读德语。 */
 export function speak(
@@ -86,34 +106,30 @@ export function speak(
     warnNoGermanVoice()
     return Promise.resolve()
   }
-  stopSpeaking()
-  const my = ++token
-  return new Promise((resolve) => {
-    const u = new SpeechSynthesisUtterance(text)
-    u.voice = v
-    u.lang = v.lang
-    u.rate = opts.rate ?? 1
-    u.onend = () => resolve()
-    u.onerror = () => resolve()
-    // Chrome 的长文本 bug 规避：短句直接朗读即可
-    window.speechSynthesis.speak(u)
-    // 兜底：若引擎静默失败 3s 后 resolve，避免 UI 卡住
-    window.setTimeout(() => {
-      if (my === token && !window.speechSynthesis.speaking) resolve()
-    }, 3000)
-  })
+  stopSpeaking() // 取消当前播放，并使正在进行的序列作废
+  return utter(text, opts)
 }
 
-/** 顺序朗读多段文本（整列表自动朗读 / 数字串训练），可随时 stopAll */
+/** 顺序朗读多段文本（整列表连读 / 字母拼写 / 数字串），可随时 stopAll。
+ *  修复：曾在此循环内调用 speak()，其 stopSpeaking() 会递增令牌导致
+ *  序列读完美第一项就中止——只有装了德语语音的环境才会触发。 */
 export async function speakSequence(
   texts: string[],
   opts: { rate?: number; voiceURI?: string; gapMs?: number; onIndex?: (i: number) => void } = {},
 ): Promise<void> {
-  const my = ++token
+  if (!ttsSupported() || texts.length === 0) return
+  if (!voices.length) refreshVoices()
+  const v = resolveVoice(opts.voiceURI ?? '')
+  if (!v) {
+    warnNoGermanVoice()
+    return Promise.resolve()
+  }
+  stopSpeaking() // 先取消旧播放，令牌自增使旧序列作废
+  const my = token
   for (let i = 0; i < texts.length; i++) {
     if (my !== token) return
     opts.onIndex?.(i)
-    await speak(texts[i], opts)
+    await utter(texts[i], opts)
     if (my !== token) return
     if (opts.gapMs && i < texts.length - 1) await new Promise((r) => setTimeout(r, opts.gapMs))
   }
