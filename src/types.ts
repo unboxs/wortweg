@@ -64,6 +64,8 @@ export interface Settings {
   ttsSource: TtsSource
   /** Polly 在线音色 */
   onlineVoice: OnlineVoice
+  /** 学习流模式：教学（看词听音）/ 练习（七题型检验） */
+  studyMode: 'teach' | 'practice'
   /** TTS 常速 */
   rate: number
   /** TTS 慢速 */

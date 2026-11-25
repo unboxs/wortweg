@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
+  BookOpen,
   Brain,
   Briefcase,
   Check,
@@ -18,6 +19,7 @@ import {
   Quote,
   Search,
   Shuffle,
+  Sprout,
   Type,
   type LucideIcon,
 } from 'lucide-react'
@@ -28,6 +30,8 @@ import { SpeakButtons } from '../components/ui'
 import type { BankEntry } from '../types'
 
 const CAT_ICONS: Record<string, LucideIcon> = {
+  a1: Sprout,
+  a2: BookOpen,
   alltag: Coffee,
   arbeit: Briefcase,
   reisen: Plane,

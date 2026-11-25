@@ -1,4 +1,6 @@
-// 内置 B1–B2 词库聚合。所有条目为手工整理的高频德语词汇/短语。
+// 内置词库聚合。A1/A2 在前（新手第一眼），B1–B2 主题随后。
+import a1 from './a1'
+import a2 from './a2'
 import alltag from './alltag'
 import arbeit from './arbeit'
 import reisen from './reisen'
@@ -15,6 +17,8 @@ import wendungen from './wendungen'
 import type { BankCategory } from '../../types'
 
 export const BANK: BankCategory[] = [
+  a1,
+  a2,
   alltag,
   arbeit,
   reisen,

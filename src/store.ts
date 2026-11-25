@@ -69,6 +69,7 @@ const defaultSettings: Settings = {
   meaningLang: 'zh',
   ttsSource: 'system',
   onlineVoice: 'Vicki',
+  studyMode: 'teach',
   rate: 1,
   slowRate: 0.6,
   voiceURI: '',

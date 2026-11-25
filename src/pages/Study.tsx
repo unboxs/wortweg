@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { BookOpen, Gem, Headphones, Hash, Keyboard, Link2, PlusCircle, RefreshCw, Shuffle, X } from 'lucide-react'
+import { ArrowRight, BookOpen, Gem, Headphones, Hash, Keyboard, Link2, PlusCircle, RefreshCw, Shuffle, Turtle, Volume2, X } from 'lucide-react'
 import { useStore, type NewEntrySeed } from '../store'
 import { useSpeech } from '../hooks/useSpeech'
 import { normalizeDe } from '../lib/goldlist'
@@ -38,8 +38,10 @@ export default function Study() {
   const nav = useNavigate()
   const lists = useStore((s) => s.lists)
   const settings = useStore((s) => s.settings)
+  const setSettings = useStore((s) => s.setSettings)
   const createList = useStore((s) => s.createList)
   const { speak } = useSpeech()
+  const practice = settings.studyMode === 'practice'
 
   const [mode, setMode] = useState<Mode | null>(null)
   const [theme, setTheme] = useState<string | null>(null)
@@ -77,22 +79,25 @@ export default function Study() {
   // 每个词条随机派生一种题型（父级持有，便于按题型决定是否自动朗读）
   const ex = useMemo(() => (card ? buildExercise(card) : null), [card, idx])
 
-  // 自动朗读：只对不泄题的题型（抄写/听写）
+  // 自动朗读：教学模式总是读（这就是"听"的部分）；练习模式只读不泄题的题型
   useEffect(() => {
     if (!card || finished || !ex || mode === 'numbers' || mode === 'match' || mode === 'spell') return
-    if (settings.autoSpeak && ex.speakOnEnter) speak(card.german)
+    if (settings.autoSpeak && (!practice || ex.speakOnEnter)) speak(card.german)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, card?.german, finished])
 
   const advance = (mark: boolean) => {
     if (!card) return
-    if (mark) {
-      setSolved((prev) => {
-        const next = new Set(prev)
-        next.add(idx)
-        return next
-      })
-    } else if (!solved.has(idx)) return
+    if (practice) {
+      if (mark) {
+        setSolved((prev) => {
+          const next = new Set(prev)
+          next.add(idx)
+          return next
+        })
+      } else if (!solved.has(idx)) return
+    }
+    // 教学模式：自由翻页
     const n = idx + 1
     if (n >= pool.length) {
       setFinished(true)
@@ -101,7 +106,7 @@ export default function Study() {
     setIdx(n)
   }
 
-  // 键盘：→ 在已解出时可翻词；← 回看；S/D 朗读。正在输入时忽略。
+  // 键盘：→ 在练习模式需已解出，教学模式自由；← 回看；S/D 朗读。正在输入时忽略。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!card || finished || mode === 'numbers' || mode === 'match' || mode === 'spell') return
@@ -115,7 +120,7 @@ export default function Study() {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [idx, card, finished, solved, settings.slowRate])
+  }, [idx, card, finished, solved, settings.slowRate, practice])
 
   const createFromExplore = () => {
     if (!theme || pool.length === 0) return
@@ -274,7 +279,7 @@ export default function Study() {
       </div>
     )
 
-  // ── 练习流 ──
+  // ── 学习流（教学 / 练习）──
   return (
     <div className="flex min-h-dvh flex-col bg-zinc-50 dark:bg-[#0c0c0e]">
       <div className="px-5 pt-5">
@@ -282,11 +287,27 @@ export default function Study() {
           <button onClick={() => setMode(null)} className="cursor-pointer rounded-lg p-1.5 text-zinc-400 transition hover:text-zinc-700 dark:hover:text-zinc-200">
             <X size={18} />
           </button>
-          <span className="text-xs tabular-nums text-zinc-400">
+          <span className="shrink-0 text-xs tabular-nums text-zinc-400">
             {mode === 'review' ? '温习' : `探索 · ${catName}`} · {idx + 1} / {pool.length}
           </span>
           <Bar pct={(idx + 1) / pool.length} gold />
-          <span className="text-xs tabular-nums text-amber-500 dark:text-amber-300">{solved.size} 已练习</span>
+          {practice && <span className="shrink-0 text-xs tabular-nums text-amber-500 dark:text-amber-300">{solved.size} 已练习</span>}
+          <span className="flex-1" />
+          {/* 教学默认：先看词听音认识；主动选择才进入练习检验 */}
+          <div className="flex shrink-0 gap-1">
+            <button
+              onClick={() => setSettings({ studyMode: 'teach' })}
+              className={`chip border px-2.5 py-1 text-[11px] ${!practice ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-300' : 'border-zinc-200 text-zinc-500 dark:border-white/10 dark:text-zinc-400'}`}
+            >
+              教学
+            </button>
+            <button
+              onClick={() => setSettings({ studyMode: 'practice' })}
+              className={`chip border px-2.5 py-1 text-[11px] ${practice ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-300' : 'border-zinc-200 text-zinc-500 dark:border-white/10 dark:text-zinc-400'}`}
+            >
+              练习
+            </button>
+          </div>
         </div>
       </div>
 
@@ -302,7 +323,7 @@ export default function Study() {
             <PlusCircle size={15} /> 从词库创建 Headlist
           </Link>
         </div>
-      ) : (
+      ) : practice ? (
         <>
           <div className="flex flex-1 items-center justify-center px-5 py-6">
             <ExerciseCard key={`${idx}-${card.german}`} entry={card} ex={ex!} onSolved={() => advance(true)} />
@@ -320,6 +341,48 @@ export default function Study() {
             <p className="mt-3 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
               {solved.has(idx) ? 'Enter / → 继续' : '解出这道题自动翻页'} —— <span className="kbd">S</span> 朗读
               <span className="kbd ml-1">D</span> 慢速
+            </p>
+          </div>
+        </>
+      ) : (
+        <>
+          {/* 教学卡：看词 · 听音 · 释义延迟浮现 —— 不考试，先认识 */}
+          <div className="flex flex-1 items-center justify-center px-5 py-6">
+            <motion.div
+              key={card.german}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.22 }}
+              className="w-full max-w-xl text-center"
+            >
+              <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{card.german}</h2>
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-4">
+                <div className="text-lg text-zinc-500 dark:text-zinc-400">{card.zh}</div>
+                {card.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{card.example}“</div>}
+              </motion.div>
+              <div className="mt-7 flex items-center justify-center gap-3">
+                <button onClick={() => speak(card.german)} className="btn btn-gold h-11 w-11 rounded-full px-0">
+                  <Volume2 size={18} />
+                </button>
+                <button onClick={() => speak(card.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+                  <Turtle size={17} />
+                </button>
+              </div>
+            </motion.div>
+          </div>
+
+          <div className="px-5 pb-8">
+            <div className="mx-auto flex max-w-xl gap-3">
+              <button onClick={() => (idx > 0 ? setIdx(idx - 1) : undefined)} disabled={idx === 0} className="btn btn-ghost h-12 flex-1 text-base">
+                上一词
+              </button>
+              <button onClick={() => advance(false)} className="btn btn-gold h-12 flex-1 text-base">
+                下一词 <ArrowRight size={17} />
+              </button>
+            </div>
+            <p className="mt-3 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
+              看词 · 听音 · 走到下一个 —— 觉得记住了，切到「练习」检验自己（<span className="kbd">S</span> 朗读
+              <span className="kbd ml-1">D</span> 慢速）
             </p>
           </div>
         </>
