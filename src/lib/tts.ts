@@ -63,18 +63,59 @@ function warnNoGermanVoice(): void {
   useStore.getState().pushToast({
     kind: 'goal',
     title: '未检测到德语语音',
-    desc: 'Windows：设置 → 时间和语言 → 添加德语（勾选语音包）后重启浏览器；或改用 Edge',
+    desc: 'Windows：设置 → 时间和语言 → 添加德语（勾选语音包）后重启浏览器；或改用在线发音源',
   })
 }
 
-export function stopSpeaking(): void {
-  if (!ttsSupported()) return
-  token++
-  window.speechSynthesis.cancel()
+let warnedOnline = false
+function warnOnlineFallback(): void {
+  if (warnedOnline) return
+  warnedOnline = true
+  useStore.getState().pushToast({
+    kind: 'goal',
+    title: '在线语音不可达',
+    desc: '已临时回落系统语音；可在设置里切换发音源',
+  })
 }
 
-/** 发出一条话语并等待结束：纯排队，不取消、不动令牌（序列内部复用） */
-function utter(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
+// ─── 在线发音源（免 Key）：StreamElements 的 Amazon Polly / Google 翻译 ──
+
+let audioEl: HTMLAudioElement | null = null
+
+function onlineUrl(text: string, source: 'polly' | 'google', voice: string): string {
+  if (source === 'polly')
+    return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`
+  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=de&q=${encodeURIComponent(text)}`
+}
+
+/** 用 <audio> 播放在线语音；失败（网络/超时）reject 以便回落系统语音 */
+function playOnline(text: string): Promise<void> {
+  const s = useStore.getState().settings
+  const url = onlineUrl(text, s.ttsSource === 'google' ? 'google' : 'polly', s.onlineVoice)
+  return new Promise((resolve, reject) => {
+    const el = new Audio()
+    audioEl = el
+    el.src = url
+    el.onended = () => resolve()
+    el.onerror = () => reject(new Error('online tts failed'))
+    el.play().catch(reject)
+    // 兜底：网络挂起 10s 后 reject
+    window.setTimeout(() => {
+      if (el.readyState < 2) reject(new Error('online tts timeout'))
+    }, 10000)
+  })
+}
+
+function stopAudio(): void {
+  if (audioEl) {
+    audioEl.pause()
+    audioEl.removeAttribute('src')
+    audioEl = null
+  }
+}
+
+/** 发出一条系统话语并等待结束：纯排队，不取消、不动令牌（序列内部复用） */
+function utterSystem(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
   return new Promise((resolve) => {
     const u = new SpeechSynthesisUtterance(text)
     const v = resolveVoice(opts.voiceURI ?? '')
@@ -93,13 +134,47 @@ function utter(text: string, opts: { rate?: number; voiceURI?: string }): Promis
   })
 }
 
+/** 有语音守卫的单条系统话语（在线回落时用，绝不无语音硬读） */
+function guardedSystemUtter(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
+  if (!voices.length) refreshVoices()
+  const v = resolveVoice(opts.voiceURI ?? '')
+  if (!v) {
+    warnNoGermanVoice()
+    return Promise.resolve()
+  }
+  return utterSystem(text, opts)
+}
+
+export function stopSpeaking(): void {
+  token++
+  stopAudio()
+  if (ttsSupported()) window.speechSynthesis.cancel()
+}
+
+/** 按当前设置分发一条话语（序列内部也用它）：
+ *  在线源失败自动回落系统语音；系统源无德语语音则静默提示。 */
+function utterAny(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
+  const source = useStore.getState().settings.ttsSource
+  if (source === 'system') return utterSystem(text, opts)
+  return playOnline(text).catch(() => {
+    warnOnlineFallback()
+    return guardedSystemUtter(text, opts)
+  })
+}
+
 /** 朗读一段德语文本；resolve 在朗读结束/取消时触发。
- *  没有可用德语语音时拒绝发声并提示安装——绝不用错误语言的嗓音读德语。 */
+ *  没有可用德语语音时拒绝发声并提示——绝不用错误语言的嗓音读德语。 */
 export function speak(
   text: string,
   opts: { rate?: number; voiceURI?: string } = {},
 ): Promise<void> {
-  if (!ttsSupported() || !text.trim()) return Promise.resolve()
+  if (!text.trim()) return Promise.resolve()
+  const source = useStore.getState().settings.ttsSource
+  if (source !== 'system') {
+    stopSpeaking() // 取消当前播放，并使正在进行的序列作废
+    return utterAny(text, opts)
+  }
+  if (!ttsSupported()) return Promise.resolve()
   if (!voices.length) refreshVoices()
   const v = resolveVoice(opts.voiceURI ?? '')
   if (!v) {
@@ -107,7 +182,7 @@ export function speak(
     return Promise.resolve()
   }
   stopSpeaking() // 取消当前播放，并使正在进行的序列作废
-  return utter(text, opts)
+  return utterAny(text, opts)
 }
 
 /** 顺序朗读多段文本（整列表连读 / 字母拼写 / 数字串），可随时 stopAll。
@@ -117,19 +192,21 @@ export async function speakSequence(
   texts: string[],
   opts: { rate?: number; voiceURI?: string; gapMs?: number; onIndex?: (i: number) => void } = {},
 ): Promise<void> {
-  if (!ttsSupported() || texts.length === 0) return
-  if (!voices.length) refreshVoices()
-  const v = resolveVoice(opts.voiceURI ?? '')
-  if (!v) {
-    warnNoGermanVoice()
-    return Promise.resolve()
+  if (texts.length === 0) return
+  if (useStore.getState().settings.ttsSource === 'system') {
+    if (!ttsSupported()) return
+    if (!voices.length) refreshVoices()
+    if (!resolveVoice(opts.voiceURI ?? '')) {
+      warnNoGermanVoice()
+      return Promise.resolve()
+    }
   }
   stopSpeaking() // 先取消旧播放，令牌自增使旧序列作废
   const my = token
   for (let i = 0; i < texts.length; i++) {
     if (my !== token) return
     opts.onIndex?.(i)
-    await utter(texts[i], opts)
+    await utterAny(texts[i], opts)
     if (my !== token) return
     if (opts.gapMs && i < texts.length - 1) await new Promise((r) => setTimeout(r, opts.gapMs))
   }

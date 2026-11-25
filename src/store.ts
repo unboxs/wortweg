@@ -67,6 +67,8 @@ interface Store {
 const defaultSettings: Settings = {
   cooldownDays: 14,
   meaningLang: 'zh',
+  ttsSource: 'system',
+  onlineVoice: 'Vicki',
   rate: 1,
   slowRate: 0.6,
   voiceURI: '',

@@ -96,8 +96,48 @@ export default function Settings() {
 
       {/* TTS */}
       <section>
-        <SectionTitle>德语发音（Web Speech）</SectionTitle>
+        <SectionTitle>德语发音</SectionTitle>
         <div className="card space-y-5 p-5">
+          <div>
+            <label className="mb-2 block text-sm font-medium">发音源</label>
+            <div className="flex flex-wrap gap-2">
+              {([['system', '系统语音'], ['polly', '在线 · Polly'], ['google', '在线 · Google']] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setSettings({ ttsSource: k })}
+                  className={`chip border ${
+                    settings.ttsSource === k
+                      ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-300'
+                      : 'border-zinc-200 text-zinc-500 dark:border-white/10 dark:text-zinc-400'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {settings.ttsSource === 'polly' && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {([['Vicki', 'Vicki（女）'], ['Marlene', 'Marlene（女）'], ['Hans', 'Hans（男）']] as const).map(([v, label]) => (
+                  <button
+                    key={v}
+                    onClick={() => setSettings({ onlineVoice: v })}
+                    className={`chip border ${
+                      settings.onlineVoice === v
+                        ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-300'
+                        : 'border-zinc-200 text-zinc-500 dark:border-white/10 dark:text-zinc-400'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+              {settings.ttsSource === 'system'
+                ? '用操作系统/浏览器自带语音。离线可用，音质取决于已装的德语语音包。'
+                : '在线合成，音质更好、无需安装；需要网络，国内访问 Google 源可能需代理。不可达时自动回落系统语音；在线源不支持慢速档（慢速仍走系统语音）。'}
+            </p>
+          </div>
           <div>
             <label className="mb-2 block text-sm font-medium">德语语音</label>
             <div className="flex gap-2">
