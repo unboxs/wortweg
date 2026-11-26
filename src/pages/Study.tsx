@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, BookOpen, Gem, Headphones, Hash, Keyboard, Link2, PlusCircle, RefreshCw, Shuffle, Turtle, Volume2, X } from 'lucide-react'
 import { useStore, type NewEntrySeed } from '../store'
 import { useSpeech } from '../hooks/useSpeech'
+import { unlockMobileSpeech } from '../lib/tts'
 import { normalizeDe } from '../lib/goldlist'
 import { buildExercise, shuffle } from '../lib/exercises'
 import { BANK } from '../data/bank'
@@ -42,6 +43,9 @@ export default function Study() {
   const createList = useStore((s) => s.createList)
   const { speak } = useSpeech()
   const practice = settings.studyMode === 'practice'
+  // 开场/翻页的自动朗读必须发生在点击调用栈里，iOS 才允许出声。
+  // 随后的 effect 再读一次就会叠成两声，用这个标记跳过那一次。
+  const skipAutoRef = useRef(false)
 
   const [mode, setMode] = useState<Mode | null>(null)
   const [theme, setTheme] = useState<string | null>(null)
@@ -54,24 +58,35 @@ export default function Study() {
   const mastered = useMemo(() => lists.flatMap((l) => l.entries).filter((e) => e.mastered), [lists])
   const used = useMemo(() => new Set(lists.flatMap((l) => l.entries.map((e) => normalizeDe(e.german)))), [lists])
 
+  const speakFirstFromGesture = (cards: StudyCard[]) => {
+    // 练习模式的题型要等渲染后才知道该不该读，避免在点击里泄题
+    if (practice || !settings.autoSpeak || !cards[0]) return
+    skipAutoRef.current = true
+    speak(cards[0].german)
+  }
+
   const startReview = () => {
+    const next = shuffle(mastered).slice(0, 25)
     setMode('review')
-    setPool(shuffle(mastered).slice(0, 25))
+    setPool(next)
     setIdx(0)
     setFinished(false)
     setSolved(new Set())
+    speakFirstFromGesture(next)
   }
 
   const startExplore = (themeId: string) => {
     const cat = BANK.find((c) => c.id === themeId)
     if (!cat) return
     const fresh = cat.entries.filter((e) => !used.has(normalizeDe(e.german)))
+    const next = shuffle(fresh).slice(0, 25)
     setMode('explore')
     setTheme(themeId)
-    setPool(shuffle(fresh).slice(0, 25))
+    setPool(next)
     setIdx(0)
     setFinished(false)
     setSolved(new Set())
+    speakFirstFromGesture(next)
   }
 
   const card = pool[idx]
@@ -82,6 +97,10 @@ export default function Study() {
   // 自动朗读：教学模式总是读（这就是"听"的部分）；练习模式只读不泄题的题型
   useEffect(() => {
     if (!card || finished || !ex || mode === 'numbers' || mode === 'match' || mode === 'spell') return
+    if (skipAutoRef.current) {
+      skipAutoRef.current = false
+      return
+    }
     if (settings.autoSpeak && (!practice || ex.speakOnEnter)) speak(card.german)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, card?.german, finished])
@@ -102,6 +121,11 @@ export default function Study() {
     if (n >= pool.length) {
       setFinished(true)
       return
+    }
+    // 教学模式的「下一词」在这次点击里开读，手机自动播放策略才放行
+    if (!practice && settings.autoSpeak && pool[n]) {
+      skipAutoRef.current = true
+      speak(pool[n].german)
     }
     setIdx(n)
   }
@@ -215,7 +239,13 @@ export default function Study() {
             </p>
           </button>
 
-          <button onClick={() => setMode('numbers')} className="card block w-full p-5 text-left transition hover:border-amber-400/60">
+          <button
+            onClick={() => {
+              unlockMobileSpeech()
+              setMode('numbers')
+            }}
+            className="card block w-full p-5 text-left transition hover:border-amber-400/60"
+          >
             <div className="flex items-center gap-2 font-semibold">
               <Hash size={16} className="text-amber-500 dark:text-amber-300" /> 数字训练
             </div>

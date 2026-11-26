@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Download, FileUp, Moon, Sun, Trash2, Volume2 } from 'lucide-react'
 import { useStore, exportBackupJSON, exportMasteredCSV } from '../store'
 import { useGermanVoices, useSpeech } from '../hooks/useSpeech'
+import { isMobileSpeechDevice } from '../lib/tts'
 import { Modal, SectionTitle } from '../components/ui'
 import { BANK } from '../data/bank'
 
@@ -162,9 +163,9 @@ export default function Settings() {
             </p>
             {voices.length === 0 && (
               <p className="mt-1.5 text-[11px] leading-relaxed text-red-500 dark:text-red-400">
-                当前没有可用的德语语音（所以朗读会被静默跳过）。安装方法：Windows 设置 →
-                时间和语言 → 语言 → 添加德语，勾选"语音转换/文本转语音"组件，然后重启浏览器。
-                Edge 浏览器自带微软在线德语语音，可直接使用。
+                {isMobileSpeechDevice()
+                  ? '这台手机没有列出德语系统语音。点朗读时会改用在线德语发音（需要网络）。'
+                  : '当前没有可用的德语语音（所以朗读会被静默跳过）。安装方法：Windows 设置 → 时间和语言 → 语言 → 添加德语，勾选"语音转换/文本转语音"组件，然后重启浏览器。Edge 浏览器自带微软在线德语语音，可直接使用。'}
               </p>
             )}
           </div>
