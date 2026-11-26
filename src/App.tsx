@@ -25,6 +25,9 @@ export default function App() {
   const theme = useStore((s) => s.settings.theme)
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark')
+    document
+      .querySelector('meta[name="theme-color"]')
+      ?.setAttribute('content', theme === 'dark' ? '#09090b' : '#f4f4f5')
   }, [theme])
   useEffect(() => {
     initVoices()
