@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, Check, FlaskConical, Gem, PenLine, Turtle, TrendingUp, Volume2, X } from 'lucide-react'
@@ -15,6 +15,8 @@ export default function Distill() {
   const settings = useStore((s) => s.settings)
   const distillList = useStore((s) => s.distillList)
   const { speak } = useSpeech()
+  // 开始/翻到下一词时在点击里朗读；effect 再读会叠声，跳过那一次。
+  const skipAutoRef = useRef(false)
 
   const [started, setStarted] = useState(false)
   const [idx, setIdx] = useState(0)
@@ -33,17 +35,26 @@ export default function Distill() {
       if (idx + 1 >= active.length) {
         setResult(distillList(list.id, next))
       } else {
+        const upcoming = active[idx + 1]
+        if (settings.autoSpeak && upcoming) {
+          skipAutoRef.current = true
+          speak(upcoming.german)
+        }
         setRemembered(next)
         setIdx(idx + 1)
         setTyped('')
       }
     },
-    [list, entry, idx, remembered, active.length, distillList],
+    [list, entry, idx, remembered, active, distillList, settings.autoSpeak, speak],
   )
 
   // 每个词条出现时自动朗读（可在设置关闭）
   useEffect(() => {
     if (!started || !entry || result) return
+    if (skipAutoRef.current) {
+      skipAutoRef.current = false
+      return
+    }
     if (settings.autoSpeak) speak(entry.german)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, idx, entry?.id, result])
@@ -120,7 +131,16 @@ export default function Distill() {
             <button className="btn btn-ghost flex-1" onClick={() => nav(`/lists/${list.id}`)}>
               返回
             </button>
-            <button className="btn btn-gold flex-1" onClick={() => setStarted(true)}>
+            <button
+              className="btn btn-gold flex-1"
+              onClick={() => {
+                if (settings.autoSpeak && active[0]) {
+                  skipAutoRef.current = true
+                  speak(active[0].german)
+                }
+                setStarted(true)
+              }}
+            >
               开始蒸馏 <ArrowRight size={15} />
             </button>
           </div>
