@@ -1,6 +1,8 @@
-// ─── TTS：Web Speech API（免密钥、离线可用、德语优先） ──────────────────
-//shortcut: 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声
+// ─── TTS：系统语音，以及经本站代理的 VoiceRSS / ElevenLabs ───────────────
+// 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声。
+// VoiceRSS / ElevenLabs 的密钥只在 Cloudflare 上，浏览器只请求 /api/tts。
 
+import { isProxySource, proxyTtsPath, type ProxySource } from '../../functions/tts-contract.ts'
 import { useStore } from '../store'
 
 type VoicePick = SpeechSynthesisVoice | null
@@ -127,31 +129,83 @@ function warnOnlineFallback(): void {
   })
 }
 
-// ─── 在线发音源（免 Key）：StreamElements 的 Amazon Polly / Google 翻译 ──
+// ─── 在线发音：本站代理（VoiceRSS / ElevenLabs），以及旧的 Polly / Google ──
 
 let audioEl: HTMLAudioElement | null = null
 
-function onlineUrl(text: string, source: 'polly' | 'google', voice: string): string {
-  if (source === 'polly')
-    return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`
-  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=de&q=${encodeURIComponent(text)}`
+type RemoteSource = 'polly' | 'google' | ProxySource
+
+function remoteSource(source: string): RemoteSource {
+  if (source === 'polly' || source === 'google' || isProxySource(source)) return source
+  return 'google'
 }
 
-/** 用 <audio> 播放在线语音；失败（网络/超时）reject 以便回落系统语音 */
-function playOnline(text: string): Promise<void> {
-  const s = useStore.getState().settings
-  const url = onlineUrl(text, s.ttsSource === 'google' ? 'google' : 'polly', s.onlineVoice)
+function onlineUrl(text: string, source: RemoteSource, voice: string): string {
+  if (source === 'polly')
+    return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`
+  if (source === 'google')
+    return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=de&q=${encodeURIComponent(text)}`
+  return proxyTtsPath(source, voice, text)
+}
+
+/** 用 <audio> 播放一段在线语音；失败（网络/超时）reject 以便回落系统语音 */
+function playOne(text: string, source: RemoteSource, voice: string, rate?: number): Promise<void> {
+  const url = onlineUrl(text, source, voice)
   return new Promise((resolve, reject) => {
     const el = new Audio()
     audioEl = el
+    // Google 翻译 TTS 看到 Referer 会 404。本站代理不需要这个限制。
+    if (source === 'google') {
+      const media = el as HTMLAudioElement & { referrerPolicy?: string }
+      media.referrerPolicy = 'no-referrer'
+      el.setAttribute('referrerpolicy', 'no-referrer')
+    }
+    let settled = false
+    const ok = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    const bad = (error: Error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    }
+    el.onended = () => ok()
+    el.onerror = () => bad(new Error('online tts failed'))
     el.src = url
-    el.onended = () => resolve()
-    el.onerror = () => reject(new Error('online tts failed'))
-    el.play().catch(reject)
-    // 兜底：网络挂起 10s 后 reject
+    if (isProxySource(source)) {
+      const playback = clampPlayback(rate)
+      const apply = () => {
+        try {
+          el.playbackRate = playback
+        } catch {
+          /* 元数据到达前个别浏览器会拒绝 */
+        }
+      }
+      apply()
+      el.addEventListener('loadedmetadata', apply)
+    }
+    el.play().catch((err) => bad(err instanceof Error ? err : new Error('online tts failed')))
     window.setTimeout(() => {
-      if (el.readyState < 2) reject(new Error('online tts timeout'))
+      if (!settled && el.readyState < 2) bad(new Error('online tts timeout'))
     }, 10000)
+  })
+}
+
+function playOnline(text: string, rate?: number): Promise<void> {
+  const s = useStore.getState().settings
+  const source = remoteSource(s.ttsSource)
+  const chunks =
+    source === 'google' ? speechChunks(text, 180) : isProxySource(source) ? speechChunks(text, 280) : [text.trim()]
+  const my = token
+  const first = playOne(chunks[0] || text, source, s.onlineVoice, rate)
+  if (chunks.length <= 1) return first
+  return first.then(async () => {
+    for (let i = 1; i < chunks.length; i++) {
+      if (my !== token) return
+      await playOne(chunks[i], source, s.onlineVoice, rate)
+    }
   })
 }
 
@@ -247,15 +301,15 @@ function clampPlayback(rate?: number): number {
   return Math.min(2, Math.max(0.5, rate))
 }
 
-/** Google 翻译 TTS 的查询大约到 200 字就失败，按词切短 */
-function googleChunks(text: string): string[] {
+/** 按词切短。Google 大约到 200 字就失败；代理单次上限 300，留一点余量。 */
+function speechChunks(text: string, limit: number): string[] {
   const clean = text.replace(/\s+/g, ' ').trim()
-  if (clean.length <= 180) return [clean]
+  if (clean.length <= limit) return [clean]
   const parts: string[] = []
   let rest = clean
-  while (rest.length > 180) {
-    let cut = rest.lastIndexOf(' ', 180)
-    if (cut < 40) cut = 180
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf(' ', limit)
+    if (cut < Math.min(40, limit)) cut = limit
     parts.push(rest.slice(0, cut).trim())
     rest = rest.slice(cut).trim()
   }
@@ -271,12 +325,13 @@ function playMobileOnline(
   text: string,
   rate: number | undefined,
   my: number,
-  source: 'polly' | 'google',
+  source: RemoteSource,
 ): Promise<void> {
   if (my !== token) return Promise.resolve()
   if (typeof document === 'undefined' || !document.body) return Promise.reject(new Error('no document'))
   const settings = useStore.getState().settings
-  const chunks = source === 'google' ? googleChunks(text) : [text.trim()]
+  const chunks =
+    source === 'google' ? speechChunks(text, 180) : isProxySource(source) ? speechChunks(text, 280) : [text.trim()]
   const el = ensureMobileAudio()
   const playback = clampPlayback(rate)
   try {
@@ -442,7 +497,28 @@ async function utterOnMobile(
     return
   }
 
-  // 没有德语系统语音，或用户选了在线源：在这次点击里直接 play()。
+  // 用户选了 VoiceRSS / ElevenLabs：这次点击里直接 play() 本站代理。
+  // 失败只回落系统德语语音，不再去打已经失效的 Polly / Google。
+  if (isProxySource(source)) {
+    if (ttsSupported() && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+      window.speechSynthesis.cancel()
+    }
+    try {
+      await playMobileOnline(text, opts.rate, my, source)
+      return
+    } catch {
+      if (my !== token) return
+      const lateVoice = ttsSupported() ? germanVoiceFor(opts.voiceURI) : null
+      if (lateVoice) {
+        await utterMobileSystem(text, opts, my)
+        return
+      }
+      warnMobileSpeechFailed()
+    }
+    return
+  }
+
+  // 没有德语系统语音，或用户仍选了旧的在线源：在这次点击里直接 play()。
   // 系统源回落用 Google。StreamElements Polly 对多数词句返回 401，不能当手机上的唯一出路。
   const primary: 'polly' | 'google' = source === 'polly' ? 'polly' : 'google'
   const secondary: 'polly' | 'google' = primary === 'google' ? 'polly' : 'google'
@@ -554,7 +630,7 @@ export function stopSpeaking(): void {
 function utterAny(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
   const source = useStore.getState().settings.ttsSource
   if (source === 'system') return utterSystem(text, opts)
-  return playOnline(text).catch(() => {
+  return playOnline(text, opts.rate).catch(() => {
     warnOnlineFallback()
     return guardedSystemUtter(text, opts)
   })
