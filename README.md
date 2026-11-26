@@ -15,7 +15,7 @@ npm run build      # 类型检查 + 生产构建
 npm run preview    # 预览生产构建
 ```
 
-无后端、无账号、无 API Key。所有数据存在浏览器 localStorage，可随时导出/导入 JSON 备份。
+学习记录存在浏览器 localStorage，可随时导出/导入 JSON 备份。在线发音（VoiceRSS、ElevenLabs）由同一次 Cloudflare Pages 部署里的 Function 代理：浏览器只请求本站 `/api/tts`，API Key 只放在 Cloudflare 的环境变量里。
 
 ## Goldlist 在这里如何实现
 
@@ -74,7 +74,7 @@ GList ──┬─ round: 0            → Headlist（初表）
 | 数字训练（学习区内） | 整合自 GermanLearn 项目：听音辨数、看数写词、数字串听力（电话号码式）、数字表（0–20+整十锚点含 IPA）。`numberToGerman()` 合成引擎让 TTS 可读 **0–9999 任意数字**——补上原项目仅覆盖 29 个录音锚点、无法训练合成数的缺口。范围阶梯：基础 0–20 / 进阶 0–100 / 实战 0–9999 |
 | 蒸馏 `/distill/:id` | 全屏沉浸、自动朗读、可选抄写模式、键盘流（空格=记住 / N=还没 / S=朗读 / D=慢速）、蒸馏总结 |
 | 成长 `/progress` | 等级、统计、词汇森林、主题掌握、成就墙 |
-| 设置 `/settings` | 冷却天数、每日目标、释义语言、TTS 语音/语速、主题、备份导入导出、清空数据 |
+| 设置 `/settings` | 冷却天数、每日目标、释义语言、发音源（系统 / VoiceRSS / ElevenLabs）与语速、主题、备份导入导出、清空数据 |
 
 ## 内置词库
 
@@ -90,17 +90,50 @@ GList ──┬─ round: 0            → Headlist（初表）
 
 ## TTS
 
-三档发音源，设置页可切换：
+设置页可以选择发音源，点音色旁边的「试听」会读 `Guten Tag! Ich lerne gern Deutsch.`。以前存过的 `google` / `polly` 会在打开应用时改成系统语音。学习页自动朗读每个词先按常速播一遍，再用同一段音频的播放倍速慢放一遍，不额外请求合成。手动的朗读和慢速按钮仍然各播一遍。
 
 | 源 | 音色 | 说明 |
 |---|---|---|
 | 系统语音（默认） | 系统/浏览器已装的德语语音包 | 离线可用；音质取决于语音包 |
-| 在线 · Amazon Polly | Vicki / Marlene / Hans | 经 StreamElements 免费接口，无需 Key，音质更好 |
-| 在线 · Google 翻译 | 单一音色 | 免费接口，国内大概率需代理 |
+| 在线 · VoiceRSS | Hanna / Lina / Jonas | 本站 `/api/tts` 代理，德语 `de-de`，MP3 |
+| 在线 · ElevenLabs | Lily / Charlotte / Daniel | 同一个代理。默认模型 `eleven_flash_v2_5`，`language_code=de` |
 
-在线源不可达时**自动回落系统语音**（弹一次提示）；在线源不支持慢速档（慢速按钮走系统语音）。整表连读、字母拼写、数字串全部跟随所选源。
+VoiceRSS 和 ElevenLabs 的音频在点击处理函数里用共享的 `<audio playsinline>` 开始播放（手机），慢速只改 `playbackRate`。代理失败时回落系统德语语音。整表连读、字母拼写、数字串跟随当前发音源。
 
-**没有德语语音时拒绝发声**：Windows 默认不带德语语音包——此时浏览器会用系统默认嗓音（往往是中文）读德语文本，产生"哪国语言都不是"的怪声。应用检测到这一情况会静默跳过朗读并弹提示；解决方法：Windows 设置 → 时间和语言 → 添加德语（勾选语音组件）→ 重启浏览器，或切换到在线发音源。
+学习卡、蒸馏卡和列表里的词下面，能查到的会显示音标。音标取自 [open-dict-data/ipa-dict](https://github.com/open-dict-data/ipa-dict) 的 `data/de.txt`（MIT）里每种写法的第一种读音，该词表整理自维基词典。词组逐词查找；有一个词没有条目，整条就不显示。
+
+**没有德语语音时**：桌面浏览器拒绝用系统默认嗓音（往往是中文）硬读德语，并提示安装德语语音包或改用在线发音源。手机（iOS Safari、Android Chrome）在系统源下若没有德语语音，会提示改用 VoiceRSS 或 ElevenLabs。选了这两个源时，手机和桌面都只请求本站代理。手机上的系统语音也不会在 `cancel()` 之后立刻 `speak()`——Safari 会丢掉那一条，点了没声音。
+
+### Cloudflare 密钥
+
+Pages 会在构建时带上仓库根目录的 `functions/`。`functions/api/tts.ts` 对应 `GET /api/tts`。这次分支的预览地址是：
+
+`https://cursor-reliable-online-tts-9.wortweg.pages.dev`
+
+分支名里的 `/` 会变成 `-`，并且 Cloudflare 把预览子域名截到 28 个字符，所以 `cursor/reliable-online-tts-9bae` 不会完整出现在地址里。生产环境仍是现有的 Pages 项目（`wortweg.pages.dev`，或你已经绑的自定义域名）。
+
+在 Cloudflare 控制台为**生产**和**预览**都添加加密变量（Settings → Variables and Secrets → Secret）：
+
+| 名称 | 作用 |
+|---|---|
+| `VOICERSS_API_KEY` | VoiceRSS 密钥 |
+| `ELEVENLABS_API_KEY` | ElevenLabs 密钥（`xi-api-key`） |
+
+可选。只有当账号用不了下面的预置音色时才需要，值是音色 id，不是 API Key：
+
+| 名称 | 对应设置里的音色 | 未设置时使用的预置 id |
+|---|---|---|
+| `ELEVENLABS_VOICE_LILY` | Lily | `pFZP5JQG7iQjIQuC4Bku` |
+| `ELEVENLABS_VOICE_CHARLOTTE` | Charlotte | `XB0fDUnXU5powFXDhCwa` |
+| `ELEVENLABS_VOICE_DANIEL` | Daniel | `onwK4e9ZLuTAKqWW03F9` |
+
+2026 年 3 月之后注册的 ElevenLabs 账号可能没有这些 Default 音色，免费套餐也不能通过 API 使用 Voice Library。代理在预置 id 返回 404 时会改用 `GET /v1/voices` 里该密钥实际能用的第一只音色。若列表也是空的，请在 ElevenLabs 里准备一只可用音色，并把 id 填进上面的可选变量。保存密钥后重新部署一次预览和生产，Function 才会读到新值。
+
+密钥不会写进前端包，也不会出现在 git 里。不要把真实 key 放进 `.env`、`.dev.vars` 或任何会提交的文件。本地调试把 `.dev.vars.example` 复制为 `.dev.vars`（已在 `.gitignore`）再运行 `npm run dev`，Vite 会在本机提供同一个 `/api/tts`。没有密钥时接口返回 503，朗读回落系统语音。
+
+VoiceRSS 免费档大约每天 350 次请求，ElevenLabs 免费档每月约 10,000 credits；flash 模型按半个 credit 计，同样的字数能读得更久。代理把单次文本限制在 300 字以内，并缓存成功的音频。
+
+仓库里故意没有带 `pages_build_output_dir` 的 Wrangler 配置，避免一次推送把现有 Pages 项目的控制台设置覆盖掉。Function 由 Pages 的 git 集成按 `functions/` 目录自动挂上。
 
 ## 项目结构
 
@@ -110,12 +143,16 @@ src/
 ├── lib/
 │   ├── goldlist.ts       # Goldlist 引擎：状态推导、统计、日期
 │   ├── xp.ts             # 等级曲线、成就定义与判定
-│   └── tts.ts            # Web Speech 封装（德语优选、慢速、连读）
+│   └── tts.ts            # 系统语音 + 本站代理播放（德语优选、慢速、连读）
 ├── store.ts               # Zustand + localStorage 持久化 + 全部业务动作
 ├── data/bank/            # 内置词库（13 主题 2387 词条）
 ├── components/           # Layout / Toasts / FocusTimer / ui 杂件
 ├── hooks/useSpeech.ts
 └── pages/                # Dashboard / Lists / ListDetail / NewHeadlist / Distill / Progress / Settings
+functions/
+├── api/tts.ts            # Pages Function：GET /api/tts
+├── tts-handler.ts        # 只从环境变量读取 VoiceRSS / ElevenLabs 密钥
+└── tts-contract.ts       # 音色与 /api/tts 地址，前后端共用，不含密钥
 ```
 
 ## 已知边界

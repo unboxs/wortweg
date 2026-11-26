@@ -50,10 +50,10 @@ export interface DistillEvent {
 
 export type ThemeMode = 'dark' | 'light'
 
-/** 发音源：系统 Web Speech / 在线 Polly / 在线 Google 翻译 */
-export type TtsSource = 'system' | 'polly' | 'google'
+/** 发音源：系统 Web Speech / VoiceRSS / ElevenLabs */
+export type TtsSource = 'system' | 'voicerss' | 'elevenlabs'
 
-export type OnlineVoice = 'Vicki' | 'Marlene' | 'Hans'
+export type OnlineVoice = 'Hanna' | 'Lina' | 'Jonas' | 'Lily' | 'Charlotte' | 'Daniel'
 
 export interface Settings {
   /** 冷却期天数，默认 14 */
@@ -62,7 +62,7 @@ export interface Settings {
   meaningLang: 'zh' | 'en'
   /** 发音源 */
   ttsSource: TtsSource
-  /** Polly 在线音色 */
+  /** VoiceRSS / ElevenLabs 音色 */
   onlineVoice: OnlineVoice
   /** 学习流模式：教学（看词听音）/ 练习（七题型检验） */
   studyMode: 'teach' | 'practice'

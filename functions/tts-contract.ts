@@ -1,0 +1,63 @@
+/** Shared by the Pages Function and the browser. No secrets and no network calls. */
+
+export const VOICERSS_VOICES = ['Hanna', 'Lina', 'Jonas'] as const
+export const ELEVEN_VOICES = ['Lily', 'Charlotte', 'Daniel'] as const
+
+export type VoiceRssVoice = (typeof VOICERSS_VOICES)[number]
+export type ElevenVoice = (typeof ELEVEN_VOICES)[number]
+
+export const TTS_SOURCES = ['system', 'voicerss', 'elevenlabs'] as const
+export type SavedTtsSource = (typeof TTS_SOURCES)[number]
+
+export const PROXY_SOURCES = ['voicerss', 'elevenlabs'] as const
+export type ProxySource = (typeof PROXY_SOURCES)[number]
+
+/** Saved google/polly (and any unknown value) become the offline system voice. */
+export function migrateTtsSource(source: string | undefined | null): SavedTtsSource {
+  if (source === 'voicerss' || source === 'elevenlabs') return source
+  return 'system'
+}
+
+/** A public preview URL must not be able to spend the daily quota on long passages. */
+export const TTS_TEXT_MAX = 300
+
+export function isProxySource(source: string): source is ProxySource {
+  return source === 'voicerss' || source === 'elevenlabs'
+}
+
+function inList<T extends string>(list: readonly T[], value: string): value is T {
+  return (list as readonly string[]).includes(value)
+}
+
+/** Voice chip for the active source. Unknown names fall back to that source's default. */
+export function voiceForSource(source: string, voice: string): string {
+  if (source === 'voicerss') return inList(VOICERSS_VOICES, voice) ? voice : 'Hanna'
+  if (source === 'elevenlabs') return inList(ELEVEN_VOICES, voice) ? voice : 'Lily'
+  return voice
+}
+
+export function cleanTtsText(raw: string): string {
+  return raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * 503 from the proxy when a secret is missing. Returns the variable name, not a key.
+ * Any other failure is a normal outage and returns null.
+ */
+export function missingProxySecret(status: number, error: string | undefined): string | null {
+  if (status !== 503 || !error) return null
+  const named = error.match(/\b(VOICERSS_API_KEY|ELEVENLABS_API_KEY)\b/)
+  if (named && /not configured/i.test(error)) return named[1]
+  if (/not configured/i.test(error)) return 'API_KEY'
+  return null
+}
+
+/** Same-origin URL an <audio> element can start inside a click handler. */
+export function proxyTtsPath(source: ProxySource, voice: string, text: string): string {
+  const params = new URLSearchParams({
+    source,
+    voice: voiceForSource(source, voice),
+    text: cleanTtsText(text),
+  })
+  return `/api/tts?${params.toString()}`
+}

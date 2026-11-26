@@ -26,6 +26,7 @@ import {
   roundName,
   stageOf,
 } from '../lib/goldlist'
+import { IpaLine } from '../components/IpaLine'
 import { Bar, EmptyState, MasteredDot, Modal, SpeakButtons, StageBadge } from '../components/ui'
 import type { Difficulty, Entry } from '../types'
 
@@ -194,6 +195,7 @@ export default function ListDetail() {
                     <span className="chip border border-amber-400/50 bg-amber-400/10 text-[10px] text-amber-600 dark:text-amber-300">朗读中</span>
                   )}
                 </div>
+                <IpaLine text={e.german} align="start" />
                 <div className={`mt-0.5 text-sm ${e.mastered ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-400'}`}>
                   {meaning(e) || <span className="italic opacity-50">（释义待补充）</span>}
                 </div>

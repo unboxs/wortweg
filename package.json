@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "bank:check": "node scripts/bank-check.cjs",
     "numbers:check": "node scripts/numbers-check.ts",
+    "tts:check": "node scripts/tts-proxy-check.ts",
     "pdf:import": "node scripts/pdf-dump.cjs && node scripts/pdf-import.cjs"
   },
   "dependencies": {
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.0.0",
+    "@types/node": "^22.20.7",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.4",

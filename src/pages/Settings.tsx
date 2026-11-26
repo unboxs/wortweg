@@ -1,9 +1,29 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Download, FileUp, Moon, Sun, Trash2, Volume2 } from 'lucide-react'
 import { useStore, exportBackupJSON, exportMasteredCSV } from '../store'
 import { useGermanVoices, useSpeech } from '../hooks/useSpeech'
+import { PROXY_STATUS_EVENT, armProxyPreview, isMobileSpeechDevice, readProxyStatus, type ProxyStatus } from '../lib/tts'
+import { ELEVEN_VOICES, VOICERSS_VOICES, voiceForSource } from '../../functions/tts-contract.ts'
 import { Modal, SectionTitle } from '../components/ui'
 import { BANK } from '../data/bank'
+import type { TtsSource } from '../types'
+
+const VOICE_LABEL: Record<string, string> = {
+  Hanna: 'Hanna（女）',
+  Lina: 'Lina（女）',
+  Jonas: 'Jonas（男）',
+  Lily: 'Lily（女）',
+  Charlotte: 'Charlotte（女）',
+  Daniel: 'Daniel（男）',
+}
+
+const SOURCE_HINT: Record<TtsSource, string> = {
+  system: '用操作系统/浏览器自带语音。离线可用，音质取决于已装的德语语音包。',
+  voicerss:
+    'VoiceRSS 德语音色（Hanna / Lina / Jonas）。浏览器只向本站要音频，由 Cloudflare 去调用 VoiceRSS，密钥留在服务端。慢速用播放倍速。失败时回落系统语音。',
+  elevenlabs:
+    'ElevenLabs 德语合成（Lily / Charlotte / Daniel）。同样只请求本站代理，密钥不进浏览器。慢速用播放倍速。失败时回落系统语音。',
+}
 
 function download(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime })
@@ -16,6 +36,20 @@ function download(filename: string, content: string, mime: string) {
 }
 
 const stamp = () => new Date().toISOString().slice(0, 10)
+const PREVIEW_PHRASE = 'Guten Tag! Ich lerne gern Deutsch.'
+
+function useProxyStatus(): ProxyStatus | null {
+  const [status, setStatus] = useState<ProxyStatus | null>(() => readProxyStatus())
+  useEffect(() => {
+    const onStatus = (event: Event) => {
+      const detail = (event as CustomEvent<ProxyStatus>).detail
+      setStatus(detail?.state === 'ready' ? null : detail)
+    }
+    window.addEventListener(PROXY_STATUS_EVENT, onStatus)
+    return () => window.removeEventListener(PROXY_STATUS_EVENT, onStatus)
+  }, [])
+  return status
+}
 
 export default function Settings() {
   const settings = useStore((s) => s.settings)
@@ -25,6 +59,11 @@ export default function Settings() {
   const lists = useStore((s) => s.lists)
   const voices = useGermanVoices()
   const { speak } = useSpeech()
+  const proxyStatus = useProxyStatus()
+  const preview = () => {
+    armProxyPreview()
+    void speak(PREVIEW_PHRASE)
+  }
   const fileRef = useRef<HTMLInputElement>(null)
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
@@ -101,7 +140,13 @@ export default function Settings() {
           <div>
             <label className="mb-2 block text-sm font-medium">发音源</label>
             <div className="flex flex-wrap gap-2">
-              {([['system', '系统语音'], ['polly', '在线 · Polly'], ['google', '在线 · Google']] as const).map(([k, label]) => (
+              {(
+                [
+                  ['system', '系统语音'],
+                  ['voicerss', '在线 · VoiceRSS'],
+                  ['elevenlabs', '在线 · ElevenLabs'],
+                ] as const
+              ).map(([k, label]) => (
                 <button
                   key={k}
                   onClick={() => setSettings({ ttsSource: k })}
@@ -115,31 +160,40 @@ export default function Settings() {
                 </button>
               ))}
             </div>
-            {settings.ttsSource === 'polly' && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {([['Vicki', 'Vicki（女）'], ['Marlene', 'Marlene（女）'], ['Hans', 'Hans（男）']] as const).map(([v, label]) => (
+            {settings.ttsSource !== 'system' && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {(settings.ttsSource === 'voicerss' ? VOICERSS_VOICES : ELEVEN_VOICES).map((v) => (
                   <button
                     key={v}
                     onClick={() => setSettings({ onlineVoice: v })}
                     className={`chip border ${
-                      settings.onlineVoice === v
+                      voiceForSource(settings.ttsSource, settings.onlineVoice) === v
                         ? 'border-amber-400/60 bg-amber-400/10 text-amber-600 dark:text-amber-300'
                         : 'border-zinc-200 text-zinc-500 dark:border-white/10 dark:text-zinc-400'
                     }`}
                   >
-                    {label}
+                    {VOICE_LABEL[v]}
                   </button>
                 ))}
+                <button className="btn btn-ghost h-9 shrink-0" onClick={preview}>
+                  <Volume2 size={15} /> 试听
+                </button>
               </div>
             )}
             <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
-              {settings.ttsSource === 'system'
-                ? '用操作系统/浏览器自带语音。离线可用，音质取决于已装的德语语音包。'
-                : '在线合成，音质更好、无需安装；需要网络，国内访问 Google 源可能需代理。不可达时自动回落系统语音；在线源不支持慢速档（慢速仍走系统语音）。'}
+              {SOURCE_HINT[settings.ttsSource] ?? SOURCE_HINT.system}
+              {settings.ttsSource !== 'system' && ' 试听短语是「Guten Tag! Ich lerne gern Deutsch.」。'}
             </p>
+            {proxyStatus?.state === 'unconfigured' && (settings.ttsSource === 'voicerss' || settings.ttsSource === 'elevenlabs') && (
+              <p className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-100">
+                在线发音还没配好。Cloudflare 里还没有 {proxyStatus.secret}，试听和学习朗读暂时用系统语音。写好这个密钥并重新部署后，再点试听才会是在线合成。
+              </p>
+            )}
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium">德语语音</label>
+            <label className="mb-2 block text-sm font-medium">
+              {settings.ttsSource === 'system' ? '德语语音' : '回落用的系统语音'}
+            </label>
             <div className="flex gap-2">
               <select
                 className="input flex-1"
@@ -153,18 +207,22 @@ export default function Settings() {
                   </option>
                 ))}
               </select>
-              <button className="btn btn-ghost shrink-0" onClick={() => speak('Guten Tag! Ich lerne gern Deutsch.')}>
-                <Volume2 size={15} /> 试听
-              </button>
+              {settings.ttsSource === 'system' && (
+                <button className="btn btn-ghost h-9 shrink-0" onClick={preview}>
+                  <Volume2 size={15} /> 试听
+                </button>
+              )}
             </div>
             <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-              语音列表来自你的操作系统/浏览器。Windows 推荐安装德语语音包以获得最佳音质。
+              {settings.ttsSource === 'system'
+                ? '语音列表来自你的操作系统/浏览器。Windows 推荐安装德语语音包以获得最佳音质。试听短语是「Guten Tag! Ich lerne gern Deutsch.」。'
+                : '在线发音失败时用这里的系统嗓音接着读。上面的试听针对当前在线发音源。'}
             </p>
             {voices.length === 0 && (
               <p className="mt-1.5 text-[11px] leading-relaxed text-red-500 dark:text-red-400">
-                当前没有可用的德语语音（所以朗读会被静默跳过）。安装方法：Windows 设置 →
-                时间和语言 → 语言 → 添加德语，勾选"语音转换/文本转语音"组件，然后重启浏览器。
-                Edge 浏览器自带微软在线德语语音，可直接使用。
+                {isMobileSpeechDevice()
+                  ? '这台手机没有列出德语系统语音。点朗读时会改用在线德语发音（需要网络）。'
+                  : '当前没有可用的德语语音（所以朗读会被静默跳过）。安装方法：Windows 设置 → 时间和语言 → 语言 → 添加德语，勾选"语音转换/文本转语音"组件，然后重启浏览器。Edge 浏览器自带微软在线德语语音，可直接使用。'}
               </p>
             )}
           </div>
@@ -265,7 +323,7 @@ export default function Settings() {
             {' '}{settings.cooldownDays} 天 → 蒸馏只留没记住的 → 循环直到清空。不闪卡、不逼回忆，让自然遗忘曲线替你筛选。
           </p>
           <p>内置词库：{BANK.length} 个主题、{BANK.reduce((s, c) => s + c.entries.length, 0)} 个 B1–B2 词条/短语，全部存储于本机浏览器。</p>
-          <p className="text-xs">v1.0 · 纯前端，无账号、无服务器、无追踪。</p>
+          <p className="text-xs">v1.0 · 学习数据只在本机。在线发音经本站 Cloudflare 代理，密钥不在浏览器里。</p>
         </div>
       </section>
 

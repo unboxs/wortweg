@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Turtle, Volume2 } from 'lucide-react'
+import { IpaLine } from './IpaLine'
 import { useSpeech } from '../hooks/useSpeech'
 import { transcribed, type Exercise, type ExEntry } from '../lib/exercises'
 
@@ -85,6 +86,7 @@ export default function ExerciseCard({
           <Check className="text-amber-500 dark:text-amber-300" />
         </motion.div>
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
+        <IpaLine text={entry.german} />
         <div className="mt-2 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
         {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
       </motion.div>
@@ -125,6 +127,7 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
+        <IpaLine text={entry.german} />
         <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
         {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
         <div className="mx-auto mt-6 max-w-xs">
@@ -147,6 +150,7 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{ex.display}</h2>
+        {ex.display && <IpaLine text={ex.display} />}
         <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           {ex.options!.map((o) => (

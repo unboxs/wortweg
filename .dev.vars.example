@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local `npm run dev`. Leave the values empty in git.
+# Real keys belong only in this file (gitignored) or in Cloudflare Pages secrets.
+VOICERSS_API_KEY=
+ELEVENLABS_API_KEY=
+
+# Optional. Set a voice id from your ElevenLabs account when the premade
+# Lily / Charlotte / Daniel ids are not available on that account.
+# ELEVENLABS_VOICE_LILY=
+# ELEVENLABS_VOICE_CHARLOTTE=
+# ELEVENLABS_VOICE_DANIEL=

@@ -1,6 +1,8 @@
-// ─── TTS：Web Speech API（免密钥、离线可用、德语优先） ──────────────────
-//shortcut: 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声
+// ─── TTS：系统语音，以及经本站代理的 VoiceRSS / ElevenLabs ───────────────
+// 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声。
+// VoiceRSS / ElevenLabs 的密钥只在 Cloudflare 上，浏览器只请求 /api/tts。
 
+import { isProxySource, missingProxySecret, proxyTtsPath, type ProxySource } from '../../functions/tts-contract.ts'
 import { useStore } from '../store'
 
 type VoicePick = SpeechSynthesisVoice | null
@@ -13,19 +15,52 @@ let warnedNoGerman = false
 export const ttsSupported = () =>
   typeof window !== 'undefined' && 'speechSynthesis' in window
 
+/** Android Chrome 把语言码写成 de_DE；统一成 de-de 再比较 */
+function normLang(lang?: string): string {
+  return (lang || '').replace(/_/g, '-').toLowerCase()
+}
+
+function bcp47(lang?: string): string {
+  const n = normLang(lang)
+  if (!n) return 'de-DE'
+  const [language, region] = n.split('-')
+  return region ? `${language}-${region.toUpperCase()}` : language
+}
+
 function pickGerman(): VoicePick {
-  const de = voices.filter((v) => v.lang?.toLowerCase().startsWith('de'))
+  const de = voices.filter((v) => normLang(v.lang).startsWith('de'))
   if (de.length === 0) return null
   // 优先 Google / Microsoft 的在线高音质语音，其次任何 de-DE
   return (
-    de.find((v) => /google/i.test(v.name) && v.lang.toLowerCase() === 'de-de') ??
+    de.find((v) => /google/i.test(v.name) && normLang(v.lang) === 'de-de') ??
     de.find((v) => /google|microsoft|deutsch/i.test(v.name)) ??
-    de.find((v) => v.lang.toLowerCase() === 'de-de') ??
+    de.find((v) => normLang(v.lang) === 'de-de') ??
     de[0]
   )
 }
 
+/**
+ * 手机浏览器（iOS Safari / 主屏 Chrome，以及 Android Chrome）。
+ * iPadOS 13+ 的 UA 伪装成 Mac，用触点数量识别。
+ */
+export function isMobileSpeechDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (/Android/i.test(ua)) return true
+  if (/iPhone|iPad|iPod/i.test(ua)) return true
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+
+function isIOSDevice(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || ''
+  if (/iPhone|iPad|iPod/i.test(ua)) return true
+  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1
+}
+
 /** 初始化语音列表；voiceschanged 在部分浏览器上异步触发 */
+let mobileVoicePull: (() => void) | null = null
+let mobileVoiceWatchStarted = false
 export function initVoices(onUpdate?: (voices: SpeechSynthesisVoice[]) => void): void {
   if (!ttsSupported()) return
   const load = () => {
@@ -35,6 +70,22 @@ export function initVoices(onUpdate?: (voices: SpeechSynthesisVoice[]) => void):
   }
   load()
   window.speechSynthesis.onvoiceschanged = load
+  // Android 的语音列表常常要过一会儿才到；在用户点击前先刷一次，
+  // 这样朗读按钮的同步路径能选中德语嗓音。
+  if (isMobileSpeechDevice()) {
+    mobileVoicePull = load
+    if (!mobileVoiceWatchStarted) {
+      mobileVoiceWatchStarted = true
+      const pull = () => mobileVoicePull?.()
+      window.addEventListener('touchend', pull, { capture: true, passive: true })
+      window.addEventListener('click', pull, { capture: true })
+      let tries = 0
+      const id = window.setInterval(() => {
+        pull()
+        if (++tries >= 12 || germanVoices().length > 0) window.clearInterval(id)
+      }, 300)
+    }
+  }
 }
 
 export const germanVoices = () =>
@@ -78,31 +129,159 @@ function warnOnlineFallback(): void {
   })
 }
 
-// ─── 在线发音源（免 Key）：StreamElements 的 Amazon Polly / Google 翻译 ──
+export const PROXY_STATUS_EVENT = 'wortweg-proxy-status'
+const PROXY_STATUS_KEY = 'wortweg-proxy-status'
+
+export type ProxyStatus =
+  | { state: 'ready' }
+  | { state: 'down' }
+  | { state: 'unconfigured'; secret: string }
+
+let warnedUnconfigured = false
+
+function publishProxyStatus(status: ProxyStatus): void {
+  try {
+    sessionStorage.setItem(PROXY_STATUS_KEY, JSON.stringify(status))
+  } catch {
+    /* 无痕模式写不了 sessionStorage，事件仍然能更新当前页 */
+  }
+  window.dispatchEvent(new CustomEvent(PROXY_STATUS_EVENT, { detail: status }))
+}
+
+export function readProxyStatus(): ProxyStatus | null {
+  try {
+    const raw = sessionStorage.getItem(PROXY_STATUS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ProxyStatus
+    if (parsed?.state === 'ready' || parsed?.state === 'down' || parsed?.state === 'unconfigured') return parsed
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+/** 设置页每次点「试听」都再提示一次；学习连读里只提示一轮，避免每个词都弹。 */
+export function armProxyPreview(): void {
+  warnedUnconfigured = false
+}
+
+function markProxyReady(): void {
+  warnedUnconfigured = false
+  publishProxyStatus({ state: 'ready' })
+}
+
+async function explainProxyFailure(url: string): Promise<{ kind: 'unconfigured'; secret: string } | { kind: 'down' }> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' })
+    const data = (await res.json().catch(() => null)) as { error?: string } | null
+    const secret = missingProxySecret(res.status, data?.error)
+    if (secret) return { kind: 'unconfigured', secret }
+  } catch {
+    /* 网络错误走下面的「不可达」 */
+  }
+  return { kind: 'down' }
+}
+
+function warnProxyProblem(problem: { kind: 'unconfigured'; secret: string } | { kind: 'down' }): void {
+  if (problem.kind === 'down') {
+    publishProxyStatus({ state: 'down' })
+    warnOnlineFallback()
+    return
+  }
+  publishProxyStatus({ state: 'unconfigured', secret: problem.secret })
+  if (warnedUnconfigured) return
+  warnedUnconfigured = true
+  const which = problem.secret === 'ELEVENLABS_API_KEY' ? 'ElevenLabs' : problem.secret === 'VOICERSS_API_KEY' ? 'VoiceRSS' : '在线发音'
+  useStore.getState().pushToast({
+    kind: 'goal',
+    title: '在线发音还没配好',
+    desc: `${which} 的密钥还没写进 Cloudflare（${problem.secret}）。这次听到的是系统语音，不是在线合成。`,
+  })
+}
+
+// ─── 在线发音：本站代理（VoiceRSS / ElevenLabs） ──
 
 let audioEl: HTMLAudioElement | null = null
 
-function onlineUrl(text: string, source: 'polly' | 'google', voice: string): string {
-  if (source === 'polly')
-    return `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(voice)}&text=${encodeURIComponent(text)}`
-  return `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=de&q=${encodeURIComponent(text)}`
+type SpeakOpts = { rate?: number; voiceURI?: string; thenSlow?: boolean }
+
+function activeSource(): 'system' | ProxySource {
+  const source = useStore.getState().settings.ttsSource
+  return isProxySource(source) ? source : 'system'
 }
 
-/** 用 <audio> 播放在线语音；失败（网络/超时）reject 以便回落系统语音 */
-function playOnline(text: string): Promise<void> {
-  const s = useStore.getState().settings
-  const url = onlineUrl(text, s.ttsSource === 'google' ? 'google' : 'polly', s.onlineVoice)
+function onlineUrl(text: string, source: ProxySource, voice: string): string {
+  return proxyTtsPath(source, voice, text)
+}
+
+/** 用 <audio> 播放一段在线语音；失败（网络/超时）reject 以便回落系统语音。
+ *  thenSlow 时同一段音频再以慢速播一遍，不改 src，因此不会再请求一次合成。 */
+function playOne(text: string, source: ProxySource, voice: string, rate?: number, thenSlow?: boolean): Promise<void> {
+  const url = onlineUrl(text, source, voice)
+  const my = token
   return new Promise((resolve, reject) => {
     const el = new Audio()
     audioEl = el
+    let settled = false
+    let slowed = false
+    const normal = clampPlayback(rate)
+    const slow = clampPlayback(useStore.getState().settings.slowRate)
+    const ok = () => {
+      if (settled) return
+      settled = true
+      markProxyReady()
+      resolve()
+    }
+    const bad = (error: Error) => {
+      if (settled) return
+      settled = true
+      reject(error)
+    }
+    const apply = () => {
+      try {
+        el.playbackRate = slowed ? slow : normal
+      } catch {
+        /* 元数据到达前个别浏览器会拒绝 */
+      }
+    }
+    el.onended = () => {
+      if (thenSlow && !slowed && my === token) {
+        slowed = true
+        apply()
+        try {
+          el.currentTime = 0
+        } catch {
+          /* 还没准备好就结束这次，不要再发一次请求 */
+        }
+        el.play().catch(() => ok())
+        return
+      }
+      ok()
+    }
+    el.onerror = () => bad(new Error('online tts failed'))
     el.src = url
-    el.onended = () => resolve()
-    el.onerror = () => reject(new Error('online tts failed'))
-    el.play().catch(reject)
-    // 兜底：网络挂起 10s 后 reject
+    apply()
+    el.addEventListener('loadedmetadata', apply)
+    el.play().catch((err) => bad(err instanceof Error ? err : new Error('online tts failed')))
     window.setTimeout(() => {
-      if (el.readyState < 2) reject(new Error('online tts timeout'))
+      if (!settled && el.readyState < 2) bad(new Error('online tts timeout'))
     }, 10000)
+  })
+}
+
+function playOnline(text: string, rate?: number, thenSlow?: boolean): Promise<void> {
+  const s = useStore.getState().settings
+  const source = activeSource()
+  if (!isProxySource(source)) return Promise.reject(new Error('not an online source'))
+  const chunks = speechChunks(text, 280)
+  const my = token
+  const first = playOne(chunks[0] || text, source, s.onlineVoice, rate, thenSlow)
+  if (chunks.length <= 1) return first
+  return first.then(async () => {
+    for (let i = 1; i < chunks.length; i++) {
+      if (my !== token) return
+      await playOne(chunks[i], source, s.onlineVoice, rate, thenSlow)
+    }
   })
 }
 
@@ -112,6 +291,374 @@ function stopAudio(): void {
     audioEl.removeAttribute('src')
     audioEl = null
   }
+}
+
+// ─── 手机：iOS Safari / Android Chrome ──────────────────────────────────
+// 点击朗读在手机上没声音，有三层原因，桌面路径刻意不走这里：
+// 1. 每次 speak() 都先 speechSynthesis.cancel()。Safari 会丢掉紧跟在
+//    cancel() 后面的那条 utterance，所以 iOS 上点了也是静音（即使装了 Anna）。
+// 2. 没有德语系统语音时直接 return。手机通常没装德语语音包，于是永远不发声，
+//    提示还是 Windows 的安装步骤。
+// 3. iOS 要求 speak()/audio.play() 发生在点击事件的同一次调用栈里；
+//    <audio> 还必须在文档中且带 playsinline，否则 play() 被自动播放策略拒绝。
+
+let heldUtterances: SpeechSynthesisUtterance[] = []
+let mobileAudio: HTMLAudioElement | null = null
+let mobileAudioGen = 0
+let settleMobileAudio: (() => void) | null = null
+let warnedMobileDown = false
+
+function warnMobileSpeechFailed(): void {
+  if (warnedMobileDown) return
+  warnedMobileDown = true
+  useStore.getState().pushToast({
+    kind: 'goal',
+    title: '手机上暂时没有声音',
+    desc: '没有可用的德语系统语音。可以在设置里改用 VoiceRSS 或 ElevenLabs，或在系统里下载德语语音后再试。',
+  })
+}
+
+/** 本次点击里重新取语音对象。iOS 会拒绝过期的 voice 引用。 */
+function germanVoiceFor(voiceURI?: string): SpeechSynthesisVoice | null {
+  if (!ttsSupported()) return null
+  const list = window.speechSynthesis.getVoices()
+  if (list.length > 0) {
+    voices = list
+    preferred = pickGerman()
+  }
+  const de = list.filter((v) => normLang(v.lang).startsWith('de'))
+  if (voiceURI) {
+    const chosen = de.find((v) => v.voiceURI === voiceURI)
+    if (chosen) return chosen
+  }
+  // 手机上优先本地语音：Android 的网络嗓音经常在离线或第一次点击时不起声
+  const local = de.filter((v) => v.localService)
+  const pool = local.length > 0 ? local : de
+  return pool.find((v) => normLang(v.lang) === 'de-de') ?? pool[0] ?? null
+}
+
+function ensureMobileAudio(): HTMLAudioElement {
+  if (mobileAudio?.isConnected) return mobileAudio
+  const el = document.createElement('audio')
+  el.preload = 'auto'
+  const media = el as HTMLAudioElement & { playsInline?: boolean; referrerPolicy?: string }
+  media.playsInline = true
+  el.setAttribute('playsinline', 'true')
+  el.setAttribute('webkit-playsinline', 'true')
+  // 共享音频不发送 Referer。本站代理不依赖它。
+  media.referrerPolicy = 'no-referrer'
+  el.setAttribute('referrerpolicy', 'no-referrer')
+  // display:none / hidden 在 iOS 上会导致 play() 被静默忽略
+  el.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;opacity:0;pointer-events:none;'
+  document.body.appendChild(el)
+  mobileAudio = el
+  return el
+}
+
+function stopMobileAudio(): void {
+  mobileAudioGen++
+  const settle = settleMobileAudio
+  settleMobileAudio = null
+  if (settle) settle()
+  // 只暂停，不 load()/清空 src。iOS 上 load() 会打断同一次点击里紧接着的 play()。
+  if (mobileAudio) mobileAudio.pause()
+}
+
+/** 作废进行中的序列和在线音频，但不 cancel 语音引擎——空队列上的 cancel() 会让紧接着的 speak() 在 Safari 里丢失 */
+function armNewSpeech(): number {
+  token++
+  stopAudio()
+  stopMobileAudio()
+  return token
+}
+
+function clampPlayback(rate?: number): number {
+  if (rate == null || Number.isNaN(rate)) return 1
+  return Math.min(2, Math.max(0.5, rate))
+}
+
+/** 按词切短。Google 大约到 200 字就失败；代理单次上限 300，留一点余量。 */
+function speechChunks(text: string, limit: number): string[] {
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (clean.length <= limit) return [clean]
+  const parts: string[] = []
+  let rest = clean
+  while (rest.length > limit) {
+    let cut = rest.lastIndexOf(' ', limit)
+    if (cut < Math.min(40, limit)) cut = limit
+    parts.push(rest.slice(0, cut).trim())
+    rest = rest.slice(cut).trim()
+  }
+  if (rest) parts.push(rest)
+  return parts.filter(Boolean)
+}
+
+/**
+ * 在当前调用栈里对共享 <audio> 调用 play()。
+ * 第一段必须同步开播，iOS 才承认这是用户手势。
+ */
+function playMobileOnline(
+  text: string,
+  rate: number | undefined,
+  my: number,
+  source: ProxySource,
+  thenSlow?: boolean,
+): Promise<void> {
+  if (my !== token) return Promise.resolve()
+  if (typeof document === 'undefined' || !document.body) return Promise.reject(new Error('no document'))
+  const settings = useStore.getState().settings
+  const chunks = speechChunks(text, 280)
+  const el = ensureMobileAudio()
+  const normal = clampPlayback(rate)
+  const slow = clampPlayback(settings.slowRate)
+  try {
+    el.preservesPitch = true
+  } catch {
+    /* ignore */
+  }
+
+  const playChunk = (chunk: string): Promise<void> => {
+    if (my !== token) return Promise.resolve()
+    const gen = ++mobileAudioGen
+    const url = onlineUrl(chunk, source, settings.onlineVoice)
+    el.pause()
+    el.src = url
+    let slowed = false
+    const applyRate = () => {
+      try {
+        el.playbackRate = slowed ? slow : normal
+      } catch {
+        /* iOS 在元数据到达前可能拒绝 */
+      }
+    }
+    applyRate()
+    el.addEventListener('loadedmetadata', applyRate)
+    let playResult: Promise<void> | undefined
+    try {
+      const started = el.play()
+      if (started) playResult = started.then(() => applyRate())
+    } catch (err) {
+      el.removeEventListener('loadedmetadata', applyRate)
+      return Promise.reject(err instanceof Error ? err : new Error('online tts failed'))
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const cleanup = () => {
+        el.removeEventListener('loadedmetadata', applyRate)
+        el.onended = null
+        el.onerror = null
+        if (settleMobileAudio === finishOk) settleMobileAudio = null
+      }
+      const finishOk = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        if (isProxySource(source)) markProxyReady()
+        resolve()
+      }
+      const finishErr = (error: Error) => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(error)
+      }
+      settleMobileAudio = finishOk
+      el.onended = () => {
+        if (gen !== mobileAudioGen || my !== token) {
+          finishOk()
+          return
+        }
+        if (thenSlow && !slowed) {
+          slowed = true
+          applyRate()
+          try {
+            el.currentTime = 0
+          } catch {
+            /* 同一元素接着慢速，不换 src */
+          }
+          const again = el.play()
+          if (again) again.catch(() => finishOk())
+          return
+        }
+        finishOk()
+      }
+      el.onerror = () => finishErr(new Error('online tts failed'))
+      playResult?.catch((err) => finishErr(err instanceof Error ? err : new Error('online tts failed')))
+      window.setTimeout(() => {
+        if (!settled && gen === mobileAudioGen && el.readyState < 2) finishErr(new Error('online tts timeout'))
+      }, 10000)
+    })
+  }
+
+  const first = playChunk(chunks[0] || text)
+  if (chunks.length <= 1) return first
+  return first.then(async () => {
+    for (let i = 1; i < chunks.length; i++) {
+      if (my !== token) return
+      await playChunk(chunks[i])
+    }
+  })
+}
+
+function utterMobileSystem(
+  text: string,
+  opts: { rate?: number; voiceURI?: string },
+  my: number,
+): Promise<void> {
+  return new Promise((resolve) => {
+    if (!ttsSupported() || my !== token) {
+      resolve()
+      return
+    }
+    const synth = window.speechSynthesis
+    const voice = germanVoiceFor(opts.voiceURI)
+    const u = new SpeechSynthesisUtterance(text)
+    heldUtterances.push(u)
+    if (heldUtterances.length > 6) heldUtterances.splice(0, heldUtterances.length - 6)
+    if (voice) {
+      u.lang = bcp47(voice.lang)
+      try {
+        u.voice = voice
+        // 老版本 Android 认 utterance.voiceURI；iOS 设了它有时反而不出声
+        if (!isIOSDevice()) {
+          ;(u as SpeechSynthesisUtterance & { voiceURI?: string }).voiceURI = voice.voiceURI
+        }
+      } catch {
+        // 个别环境拒绝这个 voice 对象。语言已经设成德语，继续朗读，不要让点击抛错变成静音。
+      }
+    } else {
+      u.lang = 'de-DE'
+    }
+    u.rate = opts.rate ?? 1
+
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      resolve()
+    }
+    u.onend = finish
+    u.onerror = finish
+
+    const kick = () => {
+      if (my !== token) return finish()
+      try {
+        synth.speak(u)
+        // resume 只能放在 speak 之后。空队列上先 resume() 会让 iOS 丢掉下一条。
+        if (synth.paused) synth.resume()
+      } catch {
+        finish()
+      }
+    }
+
+    const busy = synth.speaking || synth.pending
+    if (!busy) {
+      // 没在读就不要 cancel()。Safari 会吞掉紧跟 cancel 的 speak()，点一下完全没声音。
+      kick()
+    } else if (isIOSDevice()) {
+      synth.cancel()
+      // 同一轮里 cancel 之后的第一条会被丢掉，第二条才出声。
+      const decoy = new SpeechSynthesisUtterance('\u00a0')
+      decoy.volume = 0
+      decoy.rate = 2
+      decoy.lang = u.lang
+      if (voice) decoy.voice = voice
+      heldUtterances.push(decoy)
+      synth.speak(decoy)
+      synth.speak(u)
+      if (synth.paused) synth.resume()
+    } else {
+      // Android Chrome：cancel() 后立刻 speak() 会被忽略，挪到下一个任务。
+      synth.cancel()
+      window.setTimeout(kick, 80)
+    }
+
+    window.setTimeout(finish, Math.min(15000, 4000 + text.length * 120))
+  })
+}
+
+async function utterOnMobile(text: string, opts: SpeakOpts, my: number): Promise<void> {
+  if (!text.trim() || my !== token) return
+  const source = activeSource()
+  const voice = source === 'system' && ttsSupported() ? germanVoiceFor(opts.voiceURI) : null
+  const slow = useStore.getState().settings.slowRate
+
+  if (source === 'system' && voice) {
+    await utterMobileSystem(text, opts, my)
+    if (opts.thenSlow && my === token) await utterMobileSystem(text, { ...opts, rate: slow }, my)
+    return
+  }
+
+  // 用户选了 VoiceRSS / ElevenLabs：这次点击里直接 play() 本站代理。
+  // 慢速是同一段音频的 playbackRate，不另请求。失败只回落系统德语语音。
+  if (isProxySource(source)) {
+    if (ttsSupported() && (window.speechSynthesis.speaking || window.speechSynthesis.pending)) {
+      window.speechSynthesis.cancel()
+    }
+    try {
+      await playMobileOnline(text, opts.rate, my, source, opts.thenSlow)
+      return
+    } catch {
+      if (my !== token) return
+      const url = onlineUrl(text, source, useStore.getState().settings.onlineVoice)
+      const problem = explainProxyFailure(url)
+      const lateVoice = ttsSupported() ? germanVoiceFor(opts.voiceURI) : null
+      if (lateVoice) {
+        void problem.then(warnProxyProblem)
+        await utterMobileSystem(text, opts, my)
+        if (opts.thenSlow && my === token) await utterMobileSystem(text, { ...opts, rate: slow }, my)
+        return
+      }
+      const settled = await problem
+      if (my !== token) return
+      if (settled.kind === 'unconfigured') warnProxyProblem(settled)
+      else warnMobileSpeechFailed()
+    }
+    return
+  }
+
+  warnMobileSpeechFailed()
+}
+
+function speakOnMobile(text: string, opts: SpeakOpts): Promise<void> {
+  const my = armNewSpeech()
+  return utterOnMobile(text, opts, my)
+}
+
+async function speakSequenceOnMobile(
+  texts: string[],
+  opts: { rate?: number; voiceURI?: string; gapMs?: number; onIndex?: (i: number) => void },
+): Promise<void> {
+  if (texts.length === 0) return
+  const my = armNewSpeech()
+  for (let i = 0; i < texts.length; i++) {
+    if (my !== token) return
+    opts.onIndex?.(i)
+    await utterOnMobile(texts[i], opts, my)
+    if (my !== token) return
+    if (opts.gapMs && i < texts.length - 1) await new Promise((r) => setTimeout(r, opts.gapMs))
+  }
+}
+
+/**
+ * 在进入「会自动朗读」的界面之前调用（点击开始的那个处理函数里）。
+ * iOS 只有在用户手势里真正调用过 speak() 之后，才允许后面 useEffect 里的朗读。
+ */
+export function unlockMobileSpeech(): void {
+  if (!isIOSDevice() || !ttsSupported()) return
+  const synth = window.speechSynthesis
+  if (synth.speaking || synth.pending) return
+  const u = new SpeechSynthesisUtterance(' ')
+  u.volume = 0
+  u.rate = 2
+  u.lang = 'de-DE'
+  const voice = germanVoiceFor()
+  if (voice) {
+    u.voice = voice
+    u.lang = bcp47(voice.lang)
+  }
+  heldUtterances.push(u)
+  synth.speak(u)
 }
 
 /** 发出一条系统话语并等待结束：纯排队，不取消、不动令牌（序列内部复用） */
@@ -148,28 +695,37 @@ function guardedSystemUtter(text: string, opts: { rate?: number; voiceURI?: stri
 export function stopSpeaking(): void {
   token++
   stopAudio()
+  stopMobileAudio()
+  heldUtterances = []
   if (ttsSupported()) window.speechSynthesis.cancel()
 }
 
 /** 按当前设置分发一条话语（序列内部也用它）：
  *  在线源失败自动回落系统语音；系统源无德语语音则静默提示。 */
-function utterAny(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
-  const source = useStore.getState().settings.ttsSource
-  if (source === 'system') return utterSystem(text, opts)
-  return playOnline(text).catch(() => {
-    warnOnlineFallback()
-    return guardedSystemUtter(text, opts)
+async function utterSystemPair(text: string, opts: SpeakOpts): Promise<void> {
+  const my = token
+  await utterSystem(text, opts)
+  if (!opts.thenSlow || my !== token) return
+  await utterSystem(text, { ...opts, rate: useStore.getState().settings.slowRate })
+}
+
+function utterAny(text: string, opts: SpeakOpts): Promise<void> {
+  const source = activeSource()
+  if (source === 'system') return utterSystemPair(text, opts)
+  return playOnline(text, opts.rate, opts.thenSlow).catch(async () => {
+    const url = onlineUrl(text, source, useStore.getState().settings.onlineVoice)
+    warnProxyProblem(await explainProxyFailure(url))
+    return utterSystemPair(text, opts)
   })
 }
 
 /** 朗读一段德语文本；resolve 在朗读结束/取消时触发。
  *  没有可用德语语音时拒绝发声并提示——绝不用错误语言的嗓音读德语。 */
-export function speak(
-  text: string,
-  opts: { rate?: number; voiceURI?: string } = {},
-): Promise<void> {
+export function speak(text: string, opts: SpeakOpts = {}): Promise<void> {
   if (!text.trim()) return Promise.resolve()
-  const source = useStore.getState().settings.ttsSource
+  // 手机走独立路径：同步开声、无语音时改播在线音频。桌面逻辑保持原样。
+  if (isMobileSpeechDevice()) return speakOnMobile(text, opts)
+  const source = activeSource()
   if (source !== 'system') {
     stopSpeaking() // 取消当前播放，并使正在进行的序列作废
     return utterAny(text, opts)
@@ -193,7 +749,11 @@ export async function speakSequence(
   opts: { rate?: number; voiceURI?: string; gapMs?: number; onIndex?: (i: number) => void } = {},
 ): Promise<void> {
   if (texts.length === 0) return
-  if (useStore.getState().settings.ttsSource === 'system') {
+  if (isMobileSpeechDevice()) {
+    await speakSequenceOnMobile(texts, opts)
+    return
+  }
+  if (activeSource() === 'system') {
     if (!ttsSupported()) return
     if (!voices.length) refreshVoices()
     if (!resolveVoice(opts.voiceURI ?? '')) {
