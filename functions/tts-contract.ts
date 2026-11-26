@@ -34,6 +34,18 @@ export function cleanTtsText(raw: string): string {
   return raw.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * 503 from the proxy when a secret is missing. Returns the variable name, not a key.
+ * Any other failure is a normal outage and returns null.
+ */
+export function missingProxySecret(status: number, error: string | undefined): string | null {
+  if (status !== 503 || !error) return null
+  const named = error.match(/\b(VOICERSS_API_KEY|ELEVENLABS_API_KEY)\b/)
+  if (named && /not configured/i.test(error)) return named[1]
+  if (/not configured/i.test(error)) return 'API_KEY'
+  return null
+}
+
 /** Same-origin URL an <audio> element can start inside a click handler. */
 export function proxyTtsPath(source: ProxySource, voice: string, text: string): string {
   const params = new URLSearchParams({

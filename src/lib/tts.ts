@@ -2,7 +2,7 @@
 // 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声。
 // VoiceRSS / ElevenLabs 的密钥只在 Cloudflare 上，浏览器只请求 /api/tts。
 
-import { isProxySource, proxyTtsPath, type ProxySource } from '../../functions/tts-contract.ts'
+import { isProxySource, missingProxySecret, proxyTtsPath, type ProxySource } from '../../functions/tts-contract.ts'
 import { useStore } from '../store'
 
 type VoicePick = SpeechSynthesisVoice | null
@@ -129,6 +129,76 @@ function warnOnlineFallback(): void {
   })
 }
 
+export const PROXY_STATUS_EVENT = 'wortweg-proxy-status'
+const PROXY_STATUS_KEY = 'wortweg-proxy-status'
+
+export type ProxyStatus =
+  | { state: 'ready' }
+  | { state: 'down' }
+  | { state: 'unconfigured'; secret: string }
+
+let warnedUnconfigured = false
+
+function publishProxyStatus(status: ProxyStatus): void {
+  try {
+    sessionStorage.setItem(PROXY_STATUS_KEY, JSON.stringify(status))
+  } catch {
+    /* 无痕模式写不了 sessionStorage，事件仍然能更新当前页 */
+  }
+  window.dispatchEvent(new CustomEvent(PROXY_STATUS_EVENT, { detail: status }))
+}
+
+export function readProxyStatus(): ProxyStatus | null {
+  try {
+    const raw = sessionStorage.getItem(PROXY_STATUS_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as ProxyStatus
+    if (parsed?.state === 'ready' || parsed?.state === 'down' || parsed?.state === 'unconfigured') return parsed
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+/** 设置页每次点「试听」都再提示一次；学习连读里只提示一轮，避免每个词都弹。 */
+export function armProxyPreview(): void {
+  warnedUnconfigured = false
+}
+
+function markProxyReady(): void {
+  warnedUnconfigured = false
+  publishProxyStatus({ state: 'ready' })
+}
+
+async function explainProxyFailure(url: string): Promise<{ kind: 'unconfigured'; secret: string } | { kind: 'down' }> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' })
+    const data = (await res.json().catch(() => null)) as { error?: string } | null
+    const secret = missingProxySecret(res.status, data?.error)
+    if (secret) return { kind: 'unconfigured', secret }
+  } catch {
+    /* 网络错误走下面的「不可达」 */
+  }
+  return { kind: 'down' }
+}
+
+function warnProxyProblem(problem: { kind: 'unconfigured'; secret: string } | { kind: 'down' }): void {
+  if (problem.kind === 'down') {
+    publishProxyStatus({ state: 'down' })
+    warnOnlineFallback()
+    return
+  }
+  publishProxyStatus({ state: 'unconfigured', secret: problem.secret })
+  if (warnedUnconfigured) return
+  warnedUnconfigured = true
+  const which = problem.secret === 'ELEVENLABS_API_KEY' ? 'ElevenLabs' : problem.secret === 'VOICERSS_API_KEY' ? 'VoiceRSS' : '在线发音'
+  useStore.getState().pushToast({
+    kind: 'goal',
+    title: '在线发音还没配好',
+    desc: `${which} 的密钥还没写进 Cloudflare（${problem.secret}）。这次听到的是系统语音，不是在线合成。`,
+  })
+}
+
 // ─── 在线发音：本站代理（VoiceRSS / ElevenLabs），以及旧的 Polly / Google ──
 
 let audioEl: HTMLAudioElement | null = null
@@ -164,6 +234,7 @@ function playOne(text: string, source: RemoteSource, voice: string, rate?: numbe
     const ok = () => {
       if (settled) return
       settled = true
+      if (isProxySource(source)) markProxyReady()
       resolve()
     }
     const bad = (error: Error) => {
@@ -375,6 +446,7 @@ function playMobileOnline(
         if (settled) return
         settled = true
         cleanup()
+        if (isProxySource(source)) markProxyReady()
         resolve()
       }
       const finishErr = (error: Error) => {
@@ -508,12 +580,18 @@ async function utterOnMobile(
       return
     } catch {
       if (my !== token) return
+      const url = onlineUrl(text, source, useStore.getState().settings.onlineVoice)
+      const problem = explainProxyFailure(url)
       const lateVoice = ttsSupported() ? germanVoiceFor(opts.voiceURI) : null
       if (lateVoice) {
+        void problem.then(warnProxyProblem)
         await utterMobileSystem(text, opts, my)
         return
       }
-      warnMobileSpeechFailed()
+      const settled = await problem
+      if (my !== token) return
+      if (settled.kind === 'unconfigured') warnProxyProblem(settled)
+      else warnMobileSpeechFailed()
     }
     return
   }
@@ -630,8 +708,13 @@ export function stopSpeaking(): void {
 function utterAny(text: string, opts: { rate?: number; voiceURI?: string }): Promise<void> {
   const source = useStore.getState().settings.ttsSource
   if (source === 'system') return utterSystem(text, opts)
-  return playOnline(text, opts.rate).catch(() => {
-    warnOnlineFallback()
+  return playOnline(text, opts.rate).catch(async () => {
+    if (isProxySource(source)) {
+      const url = onlineUrl(text, source, useStore.getState().settings.onlineVoice)
+      warnProxyProblem(await explainProxyFailure(url))
+    } else {
+      warnOnlineFallback()
+    }
     return guardedSystemUtter(text, opts)
   })
 }

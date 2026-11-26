@@ -1,8 +1,8 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Download, FileUp, Moon, Sun, Trash2, Volume2 } from 'lucide-react'
 import { useStore, exportBackupJSON, exportMasteredCSV } from '../store'
 import { useGermanVoices, useSpeech } from '../hooks/useSpeech'
-import { isMobileSpeechDevice } from '../lib/tts'
+import { PROXY_STATUS_EVENT, armProxyPreview, isMobileSpeechDevice, readProxyStatus, type ProxyStatus } from '../lib/tts'
 import { ELEVEN_VOICES, POLLY_VOICES, VOICERSS_VOICES, voiceForSource } from '../../functions/tts-contract.ts'
 import { Modal, SectionTitle } from '../components/ui'
 import { BANK } from '../data/bank'
@@ -41,6 +41,20 @@ function download(filename: string, content: string, mime: string) {
 }
 
 const stamp = () => new Date().toISOString().slice(0, 10)
+const PREVIEW_PHRASE = 'Guten Tag! Ich lerne gern Deutsch.'
+
+function useProxyStatus(): ProxyStatus | null {
+  const [status, setStatus] = useState<ProxyStatus | null>(() => readProxyStatus())
+  useEffect(() => {
+    const onStatus = (event: Event) => {
+      const detail = (event as CustomEvent<ProxyStatus>).detail
+      setStatus(detail?.state === 'ready' ? null : detail)
+    }
+    window.addEventListener(PROXY_STATUS_EVENT, onStatus)
+    return () => window.removeEventListener(PROXY_STATUS_EVENT, onStatus)
+  }, [])
+  return status
+}
 
 export default function Settings() {
   const settings = useStore((s) => s.settings)
@@ -50,6 +64,11 @@ export default function Settings() {
   const lists = useStore((s) => s.lists)
   const voices = useGermanVoices()
   const { speak } = useSpeech()
+  const proxyStatus = useProxyStatus()
+  const preview = () => {
+    armProxyPreview()
+    void speak(PREVIEW_PHRASE)
+  }
   const fileRef = useRef<HTMLInputElement>(null)
   const [importMsg, setImportMsg] = useState<string | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
@@ -149,7 +168,7 @@ export default function Settings() {
               ))}
             </div>
             {settings.ttsSource !== 'system' && settings.ttsSource !== 'google' && (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 {(settings.ttsSource === 'voicerss'
                   ? VOICERSS_VOICES
                   : settings.ttsSource === 'elevenlabs'
@@ -168,14 +187,32 @@ export default function Settings() {
                     {VOICE_LABEL[v]}
                   </button>
                 ))}
+                <button className="btn btn-ghost h-9 shrink-0" onClick={preview}>
+                  <Volume2 size={15} /> 试听
+                </button>
+              </div>
+            )}
+            {settings.ttsSource === 'google' && (
+              <div className="mt-3">
+                <button className="btn btn-ghost h-9" onClick={preview}>
+                  <Volume2 size={15} /> 试听
+                </button>
               </div>
             )}
             <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
               {SOURCE_HINT[settings.ttsSource] ?? SOURCE_HINT.system}
+              {settings.ttsSource !== 'system' && ' 试听短语是「Guten Tag! Ich lerne gern Deutsch.」。'}
             </p>
+            {proxyStatus?.state === 'unconfigured' && (settings.ttsSource === 'voicerss' || settings.ttsSource === 'elevenlabs') && (
+              <p className="mt-2 rounded-lg border border-amber-400/40 bg-amber-400/10 px-3 py-2 text-[11px] leading-relaxed text-amber-800 dark:text-amber-100">
+                在线发音还没配好。Cloudflare 里还没有 {proxyStatus.secret}，试听和学习朗读暂时用系统语音。写好这个密钥并重新部署后，再点试听才会是在线合成。
+              </p>
+            )}
           </div>
           <div>
-            <label className="mb-2 block text-sm font-medium">德语语音</label>
+            <label className="mb-2 block text-sm font-medium">
+              {settings.ttsSource === 'system' ? '德语语音' : '回落用的系统语音'}
+            </label>
             <div className="flex gap-2">
               <select
                 className="input flex-1"
@@ -189,12 +226,16 @@ export default function Settings() {
                   </option>
                 ))}
               </select>
-              <button className="btn btn-ghost shrink-0" onClick={() => speak('Guten Tag! Ich lerne gern Deutsch.')}>
-                <Volume2 size={15} /> 试听
-              </button>
+              {settings.ttsSource === 'system' && (
+                <button className="btn btn-ghost h-9 shrink-0" onClick={preview}>
+                  <Volume2 size={15} /> 试听
+                </button>
+              )}
             </div>
             <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">
-              语音列表来自你的操作系统/浏览器。Windows 推荐安装德语语音包以获得最佳音质。
+              {settings.ttsSource === 'system'
+                ? '语音列表来自你的操作系统/浏览器。Windows 推荐安装德语语音包以获得最佳音质。试听短语是「Guten Tag! Ich lerne gern Deutsch.」。'
+                : '在线发音失败时用这里的系统嗓音接着读。上面的试听针对当前在线发音源。'}
             </p>
             {voices.length === 0 && (
               <p className="mt-1.5 text-[11px] leading-relaxed text-red-500 dark:text-red-400">

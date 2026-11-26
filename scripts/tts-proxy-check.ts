@@ -1,5 +1,5 @@
 // 发音代理自检：密钥只出现在上游请求里，浏览器拿到的是本站音频响应。
-import { proxyTtsPath, voiceForSource } from '../functions/tts-contract.ts'
+import { missingProxySecret, proxyTtsPath, voiceForSource } from '../functions/tts-contract.ts'
 import { handleTtsRequest, type TtsEnv } from '../functions/tts-handler.ts'
 
 const VOICERSS_KEY = 'secret-voicerss-key'
@@ -63,6 +63,9 @@ async function bodyText(response: Response): Promise<string> {
 }
 
 async function main(): Promise<void> {
+  check(missingProxySecret(503, 'VOICERSS_API_KEY is not configured') === 'VOICERSS_API_KEY', '缺少 VoiceRSS 密钥要能认出来')
+  check(missingProxySecret(503, 'ELEVENLABS_API_KEY is not configured') === 'ELEVENLABS_API_KEY', '缺少 ElevenLabs 密钥要能认出来')
+  check(missingProxySecret(502, 'upstream speech failed') === null, '上游失败不是「还没配置」')
   check(voiceForSource('voicerss', 'Vicki') === 'Hanna', 'VoiceRSS 未知音色应回落到 Hanna')
   check(voiceForSource('elevenlabs', 'Hanna') === 'Lily', 'ElevenLabs 未知音色应回落到 Lily')
   const clientPath = proxyTtsPath('voicerss', 'Vicki', 'Guten Tag! Ich lerne gern Deutsch.')
