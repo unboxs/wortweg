@@ -2,14 +2,21 @@
 
 export const VOICERSS_VOICES = ['Hanna', 'Lina', 'Jonas'] as const
 export const ELEVEN_VOICES = ['Lily', 'Charlotte', 'Daniel'] as const
-export const POLLY_VOICES = ['Vicki', 'Marlene', 'Hans'] as const
 
 export type VoiceRssVoice = (typeof VOICERSS_VOICES)[number]
 export type ElevenVoice = (typeof ELEVEN_VOICES)[number]
-export type PollyVoice = (typeof POLLY_VOICES)[number]
+
+export const TTS_SOURCES = ['system', 'voicerss', 'elevenlabs'] as const
+export type SavedTtsSource = (typeof TTS_SOURCES)[number]
 
 export const PROXY_SOURCES = ['voicerss', 'elevenlabs'] as const
 export type ProxySource = (typeof PROXY_SOURCES)[number]
+
+/** Saved google/polly (and any unknown value) become the offline system voice. */
+export function migrateTtsSource(source: string | undefined | null): SavedTtsSource {
+  if (source === 'voicerss' || source === 'elevenlabs') return source
+  return 'system'
+}
 
 /** A public preview URL must not be able to spend the daily quota on long passages. */
 export const TTS_TEXT_MAX = 300
@@ -26,7 +33,6 @@ function inList<T extends string>(list: readonly T[], value: string): value is T
 export function voiceForSource(source: string, voice: string): string {
   if (source === 'voicerss') return inList(VOICERSS_VOICES, voice) ? voice : 'Hanna'
   if (source === 'elevenlabs') return inList(ELEVEN_VOICES, voice) ? voice : 'Lily'
-  if (source === 'polly') return inList(POLLY_VOICES, voice) ? voice : 'Vicki'
   return voice
 }
 

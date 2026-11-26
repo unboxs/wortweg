@@ -8,6 +8,7 @@ import { unlockMobileSpeech } from '../lib/tts'
 import { normalizeDe } from '../lib/goldlist'
 import { buildExercise, shuffle } from '../lib/exercises'
 import { BANK } from '../data/bank'
+import { IpaLine } from '../components/IpaLine'
 import { Bar } from '../components/ui'
 import NumberTrainer from '../components/NumberTrainer'
 import MatchGame from '../components/MatchGame'
@@ -41,7 +42,7 @@ export default function Study() {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
   const createList = useStore((s) => s.createList)
-  const { speak } = useSpeech()
+  const { speak, speakLesson } = useSpeech()
   const practice = settings.studyMode === 'practice'
   // 开场/翻页的自动朗读必须发生在点击调用栈里，iOS 才允许出声。
   // 随后的 effect 再读一次就会叠成两声，用这个标记跳过那一次。
@@ -62,7 +63,7 @@ export default function Study() {
     // 练习模式的题型要等渲染后才知道该不该读，避免在点击里泄题
     if (practice || !settings.autoSpeak || !cards[0]) return
     skipAutoRef.current = true
-    speak(cards[0].german)
+    speakLesson(cards[0].german)
   }
 
   const startReview = () => {
@@ -101,7 +102,10 @@ export default function Study() {
       skipAutoRef.current = false
       return
     }
-    if (settings.autoSpeak && (!practice || ex.speakOnEnter)) speak(card.german)
+    if (settings.autoSpeak && (!practice || ex.speakOnEnter)) {
+      if (practice) speak(card.german)
+      else speakLesson(card.german)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, card?.german, finished])
 
@@ -125,7 +129,7 @@ export default function Study() {
     // 教学模式的「下一词」在这次点击里开读，手机自动播放策略才放行
     if (!practice && settings.autoSpeak && pool[n]) {
       skipAutoRef.current = true
-      speak(pool[n].german)
+      speakLesson(pool[n].german)
     }
     setIdx(n)
   }
@@ -386,6 +390,7 @@ export default function Study() {
               className="w-full max-w-xl text-center"
             >
               <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{card.german}</h2>
+              <IpaLine text={card.german} />
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-4">
                 <div className="text-lg text-zinc-500 dark:text-zinc-400">{card.zh}</div>
                 {card.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{card.example}“</div>}
@@ -411,7 +416,7 @@ export default function Study() {
               </button>
             </div>
             <p className="mt-3 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
-              看词 · 听音 · 走到下一个 —— 觉得记住了，切到「练习」检验自己（<span className="kbd">S</span> 朗读
+              看词 · 听音（先常速，再慢速）· 走到下一个 —— 觉得记住了，切到「练习」检验自己（<span className="kbd">S</span> 朗读
               <span className="kbd ml-1">D</span> 慢速）
             </p>
           </div>

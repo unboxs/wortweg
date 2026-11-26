@@ -24,6 +24,7 @@ import {
   uid,
   yesterdayKey,
 } from './lib/goldlist'
+import { migrateTtsSource } from '../functions/tts-contract.ts'
 import { checkAchievements, levelName, levelOf, XP } from './lib/xp'
 
 export interface NewEntrySeed {
@@ -68,7 +69,7 @@ const defaultSettings: Settings = {
   cooldownDays: 14,
   meaningLang: 'zh',
   ttsSource: 'system',
-  onlineVoice: 'Vicki',
+  onlineVoice: 'Hanna',
   studyMode: 'teach',
   rate: 1,
   slowRate: 0.6,
@@ -278,7 +279,11 @@ export const useStore = create<Store>()(
               return { ok: false, error: '列表结构不合法' }
           set({
             lists,
-            settings: { ...defaultSettings, ...(src?.settings ?? {}) },
+            settings: {
+              ...defaultSettings,
+              ...(src?.settings ?? {}),
+              ttsSource: migrateTtsSource(src?.settings?.ttsSource),
+            },
             xp: src?.xp ?? 0,
             streakDays: src?.streakDays ?? 0,
             bestStreak: src?.bestStreak ?? 0,
@@ -314,7 +319,12 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'wortweg-storage',
-      version: 1,
+      version: 2,
+      migrate: (persisted) => {
+        const state = persisted as { settings?: { ttsSource?: string } }
+        if (state?.settings) state.settings.ttsSource = migrateTtsSource(state.settings.ttsSource)
+        return state
+      },
       // toasts 是瞬态的，不落盘
       partialize: (s) => {
         const { toasts: _toasts, ...rest } = s

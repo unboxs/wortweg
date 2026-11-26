@@ -3,15 +3,12 @@ import { Download, FileUp, Moon, Sun, Trash2, Volume2 } from 'lucide-react'
 import { useStore, exportBackupJSON, exportMasteredCSV } from '../store'
 import { useGermanVoices, useSpeech } from '../hooks/useSpeech'
 import { PROXY_STATUS_EVENT, armProxyPreview, isMobileSpeechDevice, readProxyStatus, type ProxyStatus } from '../lib/tts'
-import { ELEVEN_VOICES, POLLY_VOICES, VOICERSS_VOICES, voiceForSource } from '../../functions/tts-contract.ts'
+import { ELEVEN_VOICES, VOICERSS_VOICES, voiceForSource } from '../../functions/tts-contract.ts'
 import { Modal, SectionTitle } from '../components/ui'
 import { BANK } from '../data/bank'
 import type { TtsSource } from '../types'
 
 const VOICE_LABEL: Record<string, string> = {
-  Vicki: 'Vicki（女）',
-  Marlene: 'Marlene（女）',
-  Hans: 'Hans（男）',
   Hanna: 'Hanna（女）',
   Lina: 'Lina（女）',
   Jonas: 'Jonas（男）',
@@ -26,8 +23,6 @@ const SOURCE_HINT: Record<TtsSource, string> = {
     'VoiceRSS 德语音色（Hanna / Lina / Jonas）。浏览器只向本站要音频，由 Cloudflare 去调用 VoiceRSS，密钥留在服务端。慢速用播放倍速。失败时回落系统语音。',
   elevenlabs:
     'ElevenLabs 德语合成（Lily / Charlotte / Daniel）。同样只请求本站代理，密钥不进浏览器。慢速用播放倍速。失败时回落系统语音。',
-  polly: '旧的免密钥 Polly 接口，目前经常返回 401。不可达时回落系统语音。',
-  google: '旧的 Google 翻译接口，国内经常打不开。桌面播放不发送 Referer。不可达时回落系统语音。',
 }
 
 function download(filename: string, content: string, mime: string) {
@@ -150,8 +145,6 @@ export default function Settings() {
                   ['system', '系统语音'],
                   ['voicerss', '在线 · VoiceRSS'],
                   ['elevenlabs', '在线 · ElevenLabs'],
-                  ['polly', '在线 · Polly'],
-                  ['google', '在线 · Google'],
                 ] as const
               ).map(([k, label]) => (
                 <button
@@ -167,14 +160,9 @@ export default function Settings() {
                 </button>
               ))}
             </div>
-            {settings.ttsSource !== 'system' && settings.ttsSource !== 'google' && (
+            {settings.ttsSource !== 'system' && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
-                {(settings.ttsSource === 'voicerss'
-                  ? VOICERSS_VOICES
-                  : settings.ttsSource === 'elevenlabs'
-                    ? ELEVEN_VOICES
-                    : POLLY_VOICES
-                ).map((v) => (
+                {(settings.ttsSource === 'voicerss' ? VOICERSS_VOICES : ELEVEN_VOICES).map((v) => (
                   <button
                     key={v}
                     onClick={() => setSettings({ onlineVoice: v })}
@@ -188,13 +176,6 @@ export default function Settings() {
                   </button>
                 ))}
                 <button className="btn btn-ghost h-9 shrink-0" onClick={preview}>
-                  <Volume2 size={15} /> 试听
-                </button>
-              </div>
-            )}
-            {settings.ttsSource === 'google' && (
-              <div className="mt-3">
-                <button className="btn btn-ghost h-9" onClick={preview}>
                   <Volume2 size={15} /> 试听
                 </button>
               </div>

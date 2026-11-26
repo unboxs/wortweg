@@ -5,6 +5,7 @@ import { ArrowRight, Check, FlaskConical, Gem, PenLine, Turtle, TrendingUp, Volu
 import { useStore } from '../store'
 import { useSpeech } from '../hooks/useSpeech'
 import { activeEntries, normalizeDe, roundName } from '../lib/goldlist'
+import { IpaLine } from '../components/IpaLine'
 import { Bar, EmptyState, Modal } from '../components/ui'
 import type { DistillResult, GList } from '../types'
 
@@ -178,6 +179,7 @@ export default function Distill() {
           className="w-full max-w-xl text-center"
         >
             <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
+            <IpaLine text={entry.german} />
 
             {/* 释义稍后浮现 —— 被动吸收，不逼抢答 */}
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-4">

@@ -74,7 +74,7 @@ GList ──┬─ round: 0            → Headlist（初表）
 | 数字训练（学习区内） | 整合自 GermanLearn 项目：听音辨数、看数写词、数字串听力（电话号码式）、数字表（0–20+整十锚点含 IPA）。`numberToGerman()` 合成引擎让 TTS 可读 **0–9999 任意数字**——补上原项目仅覆盖 29 个录音锚点、无法训练合成数的缺口。范围阶梯：基础 0–20 / 进阶 0–100 / 实战 0–9999 |
 | 蒸馏 `/distill/:id` | 全屏沉浸、自动朗读、可选抄写模式、键盘流（空格=记住 / N=还没 / S=朗读 / D=慢速）、蒸馏总结 |
 | 成长 `/progress` | 等级、统计、词汇森林、主题掌握、成就墙 |
-| 设置 `/settings` | 冷却天数、每日目标、释义语言、发音源（系统 / VoiceRSS / ElevenLabs / Polly / Google）与语速、主题、备份导入导出、清空数据 |
+| 设置 `/settings` | 冷却天数、每日目标、释义语言、发音源（系统 / VoiceRSS / ElevenLabs）与语速、主题、备份导入导出、清空数据 |
 
 ## 内置词库
 
@@ -90,19 +90,19 @@ GList ──┬─ round: 0            → Headlist（初表）
 
 ## TTS
 
-设置页可以选择发音源，点「试听」会读 `Guten Tag! Ich lerne gern Deutsch.`。学习页和蒸馏页的朗读走同一条路径。
+设置页可以选择发音源，点音色旁边的「试听」会读 `Guten Tag! Ich lerne gern Deutsch.`。以前存过的 `google` / `polly` 会在打开应用时改成系统语音。学习页自动朗读每个词先按常速播一遍，再用同一段音频的播放倍速慢放一遍，不额外请求合成。手动的朗读和慢速按钮仍然各播一遍。
 
 | 源 | 音色 | 说明 |
 |---|---|---|
 | 系统语音（默认） | 系统/浏览器已装的德语语音包 | 离线可用；音质取决于语音包 |
 | 在线 · VoiceRSS | Hanna / Lina / Jonas | 本站 `/api/tts` 代理，德语 `de-de`，MP3 |
 | 在线 · ElevenLabs | Lily / Charlotte / Daniel | 同一个代理。默认模型 `eleven_flash_v2_5`，`language_code=de` |
-| 在线 · Amazon Polly | Vicki / Marlene / Hans | 旧的 StreamElements 接口，经常 401 |
-| 在线 · Google 翻译 | 单一音色 | 旧接口，国内经常失败。桌面播放不带 Referer |
 
-VoiceRSS 和 ElevenLabs 的音频在点击处理函数里用共享的 `<audio playsinline>` 开始播放（手机），慢速只改 `playbackRate`，不重复扣合成额度。代理失败时回落系统德语语音，并提示一次。整表连读、字母拼写、数字串跟随当前发音源。
+VoiceRSS 和 ElevenLabs 的音频在点击处理函数里用共享的 `<audio playsinline>` 开始播放（手机），慢速只改 `playbackRate`。代理失败时回落系统德语语音。整表连读、字母拼写、数字串跟随当前发音源。
 
-**没有德语语音时**：桌面浏览器拒绝用系统默认嗓音（往往是中文）硬读德语，并提示安装德语语音包或改用在线发音源。手机（iOS Safari、Android Chrome）在系统源下若没有德语语音，仍会改播在线音频。选了 VoiceRSS 或 ElevenLabs 时，手机和桌面都只请求本站代理。手机上的系统语音也不会在 `cancel()` 之后立刻 `speak()`——Safari 会丢掉那一条，点了没声音。
+学习卡、蒸馏卡和列表里的词下面，能查到的会显示音标。音标取自 [open-dict-data/ipa-dict](https://github.com/open-dict-data/ipa-dict) 的 `data/de.txt`（MIT）里每种写法的第一种读音，该词表整理自维基词典。词组逐词查找；有一个词没有条目，整条就不显示。
+
+**没有德语语音时**：桌面浏览器拒绝用系统默认嗓音（往往是中文）硬读德语，并提示安装德语语音包或改用在线发音源。手机（iOS Safari、Android Chrome）在系统源下若没有德语语音，会提示改用 VoiceRSS 或 ElevenLabs。选了这两个源时，手机和桌面都只请求本站代理。手机上的系统语音也不会在 `cancel()` 之后立刻 `speak()`——Safari 会丢掉那一条，点了没声音。
 
 ### Cloudflare 密钥
 

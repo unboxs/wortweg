@@ -23,7 +23,22 @@ export function useSpeech() {
     [rate, voiceURI],
   )
 
-  return { speak, stop: stopSpeaking, supported: ttsSupported() || isMobileSpeechDevice(), busy }
+  /** 学习卡自动朗读：常速一遍，再用同一段音频慢速一遍。 */
+  const speakLesson = useCallback(
+    async (text: string) => {
+      if (!text.trim()) return
+      if (!ttsSupported() && !isMobileSpeechDevice()) return
+      setBusy(true)
+      try {
+        await say(text, { rate, voiceURI, thenSlow: true })
+      } finally {
+        setBusy(false)
+      }
+    },
+    [rate, voiceURI],
+  )
+
+  return { speak, speakLesson, stop: stopSpeaking, supported: ttsSupported() || isMobileSpeechDevice(), busy }
 }
 
 /** 语音列表 hook（设置页选择德语语音用） */
