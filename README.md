@@ -106,11 +106,11 @@ VoiceRSS 和 ElevenLabs 的音频在点击处理函数里用共享的 `<audio pl
 
 ### Cloudflare 密钥
 
-Pages 会在构建时带上仓库根目录的 `functions/`。`functions/api/tts.ts` 对应 `GET /api/tts`。这次推送的预览地址形如：
+Pages 会在构建时带上仓库根目录的 `functions/`。`functions/api/tts.ts` 对应 `GET /api/tts`。这次分支的预览地址是：
 
-`https://cursor-reliable-online-tts-9bae.wortweg.pages.dev`
+`https://cursor-reliable-online-tts-9.wortweg.pages.dev`
 
-分支名里的 `/` 会变成 `-`。生产环境仍是现有的 Pages 项目（`wortweg.pages.dev`，或你已经绑的自定义域名）。
+分支名里的 `/` 会变成 `-`，并且 Cloudflare 把预览子域名截到 28 个字符，所以 `cursor/reliable-online-tts-9bae` 不会完整出现在地址里。生产环境仍是现有的 Pages 项目（`wortweg.pages.dev`，或你已经绑的自定义域名）。
 
 在 Cloudflare 控制台为**生产**和**预览**都添加加密变量（Settings → Variables and Secrets → Secret）：
 
