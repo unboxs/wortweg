@@ -15,7 +15,7 @@ import {
   X,
 } from 'lucide-react'
 import { useStore, type NewEntrySeed } from '../store'
-import { useSpeech } from '../hooks/useSpeech'
+import { stopDeckAudio } from '../lib/apkg/playback'
 import { speakSequence, stopSpeaking } from '../lib/tts'
 import {
   activeEntries,
@@ -26,6 +26,7 @@ import {
   roundName,
   stageOf,
 } from '../lib/goldlist'
+import { DeckImage, ExampleList, GrammarLine } from '../components/ImportedBits'
 import { IpaLine } from '../components/IpaLine'
 import { Bar, EmptyState, MasteredDot, Modal, SpeakButtons, StageBadge } from '../components/ui'
 import type { Difficulty, Entry } from '../types'
@@ -47,10 +48,15 @@ export default function ListDetail() {
   const [quickAdd, setQuickAdd] = useState('')
   const [editing, setEditing] = useState<Entry | null>(null)
   const [playingIdx, setPlayingIdx] = useState<number | null>(null)
-  const { speak } = useSpeech()
 
   // 离开页面时停止朗读
-  useEffect(() => () => stopSpeaking(), [])
+  useEffect(
+    () => () => {
+      stopDeckAudio()
+      stopSpeaking()
+    },
+    [],
+  )
 
   if (!list) return <EmptyState title="列表不存在" desc="它可能已被删除。"><Link to="/lists" className="btn btn-ghost h-9">返回列表</Link></EmptyState>
 
@@ -195,11 +201,15 @@ export default function ListDetail() {
                     <span className="chip border border-amber-400/50 bg-amber-400/10 text-[10px] text-amber-600 dark:text-amber-300">朗读中</span>
                   )}
                 </div>
-                <IpaLine text={e.german} align="start" />
+                <IpaLine text={e.german} ipa={e.ipa} fromImport={Boolean(e.sourceDeckId)} align="start" />
                 <div className={`mt-0.5 text-sm ${e.mastered ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-400'}`}>
                   {meaning(e) || <span className="italic opacity-50">（释义待补充）</span>}
                 </div>
-                {e.example && <div className="mt-1 text-xs italic text-zinc-400 dark:text-zinc-500">„{e.example}“</div>}
+                <ExampleList examples={e.examples} fallback={e.example} deckId={e.sourceDeckId} align="start" />
+                <GrammarLine grammar={e.grammar} level={e.level} />
+                {e.imageName && e.sourceDeckId && (
+                  <DeckImage deckId={e.sourceDeckId} name={e.imageName} className="mt-2 max-h-24 rounded-lg object-contain" />
+                )}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {e.tags.map((t) => (
                     <span key={t} className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-400 dark:bg-white/5 dark:text-zinc-500">{t}</span>
@@ -213,7 +223,7 @@ export default function ListDetail() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <SpeakButtons text={e.german} />
+                <SpeakButtons text={e.german} sourceDeckId={e.sourceDeckId} audioName={e.audioName} />
                 <ChevronDown size={15} className={`text-zinc-300 transition dark:text-zinc-600 ${editing?.id === e.id ? 'rotate-180' : ''}`} />
               </div>
             </div>

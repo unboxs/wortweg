@@ -9,12 +9,22 @@
 //   sentence  句子重组（打乱例句，按序点回）
 // 只有例句的词条才会出 cloze/sentence；不是名词的词条不会出冠词题。
 
+import type { EntryExample, ImportedGrammar } from '../types'
 import { normalizeDe } from './goldlist'
 
 export interface ExEntry {
   german: string
   zh: string
   example?: string
+  examples?: EntryExample[]
+  ipa?: string
+  /** 已导入词条：没有牌组音标时不要查词典补一个 */
+  fromImport?: boolean
+  grammar?: ImportedGrammar
+  level?: string
+  sourceDeckId?: string
+  audioName?: string
+  imageName?: string
 }
 
 export type Gender = 'm' | 'f' | 'n'

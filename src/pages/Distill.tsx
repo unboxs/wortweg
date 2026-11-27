@@ -15,7 +15,7 @@ export default function Distill() {
   const list = useStore((s) => s.lists.find((l) => l.id === id))
   const settings = useStore((s) => s.settings)
   const distillList = useStore((s) => s.distillList)
-  const { speak } = useSpeech()
+  const { speakEntry } = useSpeech()
   // 开始/翻到下一词时在点击里朗读；effect 再读会叠声，跳过那一次。
   const skipAutoRef = useRef(false)
 
@@ -39,14 +39,14 @@ export default function Distill() {
         const upcoming = active[idx + 1]
         if (settings.autoSpeak && upcoming) {
           skipAutoRef.current = true
-          speak(upcoming.german)
+          void speakEntry(upcoming)
         }
         setRemembered(next)
         setIdx(idx + 1)
         setTyped('')
       }
     },
-    [list, entry, idx, remembered, active, distillList, settings.autoSpeak, speak],
+    [list, entry, idx, remembered, active, distillList, settings.autoSpeak, speakEntry],
   )
 
   // 每个词条出现时自动朗读（可在设置关闭）
@@ -56,7 +56,7 @@ export default function Distill() {
       skipAutoRef.current = false
       return
     }
-    if (settings.autoSpeak) speak(entry.german)
+    if (settings.autoSpeak) void speakEntry(entry)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [started, idx, entry?.id, result])
 
@@ -70,8 +70,8 @@ export default function Distill() {
         e.preventDefault()
         judge(true)
       } else if (e.key.toLowerCase() === 'n') judge(false)
-      else if (e.key.toLowerCase() === 's') speak(entry.german)
-      else if (e.key.toLowerCase() === 'd') speak(entry.german, settings.slowRate)
+      else if (e.key.toLowerCase() === 's') void speakEntry(entry)
+      else if (e.key.toLowerCase() === 'd') void speakEntry(entry, settings.slowRate)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -137,7 +137,7 @@ export default function Distill() {
               onClick={() => {
                 if (settings.autoSpeak && active[0]) {
                   skipAutoRef.current = true
-                  speak(active[0].german)
+                  void speakEntry(active[0])
                 }
                 setStarted(true)
               }}
@@ -179,7 +179,7 @@ export default function Distill() {
           className="w-full max-w-xl text-center"
         >
             <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
-            <IpaLine text={entry.german} />
+            <IpaLine text={entry.german} ipa={entry.ipa} fromImport={Boolean(entry.sourceDeckId)} />
 
             {/* 释义稍后浮现 —— 被动吸收，不逼抢答 */}
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-4">
@@ -192,10 +192,10 @@ export default function Distill() {
 
             {/* 发音 */}
             <div className="mt-7 flex items-center justify-center gap-3">
-              <button onClick={() => speak(entry.german)} className="btn btn-gold h-11 w-11 rounded-full px-0">
+              <button onClick={() => void speakEntry(entry)} className="btn btn-gold h-11 w-11 rounded-full px-0" title={entry.audioName ? '牌组原声' : '朗读'}>
                 <Volume2 size={18} />
               </button>
-              <button onClick={() => speak(entry.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+              <button onClick={() => void speakEntry(entry, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0" title={entry.audioName ? '牌组原声慢放' : '慢速'}>
                 <Turtle size={17} />
               </button>
             </div>
