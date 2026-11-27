@@ -1,6 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Download, FileUp, Moon, Sun, Trash2, Volume2 } from 'lucide-react'
-import { useStore, exportBackupJSON, exportMasteredCSV } from '../store'
+import { useStore, exportMasteredCSV } from '../store'
+import { BACKUP_MEDIA_NOTE } from '../lib/apkg/messages'
+import { revokeAllObjectUrls } from '../lib/apkg/playback'
+
+const AnkiPanel = lazy(() => import('../components/AnkiPanel'))
 import { useGermanVoices, useSpeech } from '../hooks/useSpeech'
 import { PROXY_STATUS_EVENT, armProxyPreview, isMobileSpeechDevice, readProxyStatus, type ProxyStatus } from '../lib/tts'
 import { ELEVEN_VOICES, VOICERSS_VOICES, voiceForSource } from '../../functions/tts-contract.ts'
@@ -71,8 +75,25 @@ export default function Settings() {
 
   const onFile = async (f: File) => {
     const raw = await f.text()
+    let parsed: { importedDecks?: unknown } | null = null
+    try {
+      parsed = JSON.parse(raw) as { importedDecks?: unknown }
+    } catch {
+      setImportMsg('导入失败：JSON 解析失败')
+      return
+    }
     const r = importData(raw)
-    setImportMsg(r.ok ? '✓ 导入成功，数据已替换' : `导入失败：${r.error}`)
+    if (!r.ok) {
+      setImportMsg(`导入失败：${r.error}`)
+      return
+    }
+    if (Array.isArray(parsed.importedDecks) && parsed.importedDecks.length > 0) {
+      const { restoreImportedText } = await import('../lib/apkg/backup')
+      const restored = await restoreImportedText(parsed.importedDecks)
+      setImportMsg(`✓ 导入成功，学习记录已替换。已合并 ${restored.decks} 套牌组的文字（${restored.notes} 条）。音频和图片不在 JSON 备份里。`)
+      return
+    }
+    setImportMsg('✓ 导入成功，数据已替换')
   }
 
   return (
@@ -274,13 +295,23 @@ export default function Settings() {
         </div>
       </section>
 
+      <Suspense fallback={<p className="text-sm text-zinc-400">正在打开牌组工具…</p>}>
+        <AnkiPanel />
+      </Suspense>
+
       {/* 数据 */}
       <section>
-        <SectionTitle>数据（仅存本机 localStorage）</SectionTitle>
+        <SectionTitle>数据（学习记录在 localStorage，牌组媒体在 IndexedDB）</SectionTitle>
         <div className="card space-y-3 p-5">
+          <p className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">{BACKUP_MEDIA_NOTE}</p>
           <div className="flex flex-wrap gap-2">
-            <button className="btn btn-ghost" onClick={() => download(`wortweg-backup-${stamp()}.json`, exportBackupJSON(), 'application/json')}>
-              <Download size={15} /> 导出完整备份 (JSON)
+            <button
+              className="btn btn-ghost"
+              onClick={() => {
+                void import('../lib/apkg/backup').then(({ exportAppBackup }) => exportAppBackup()).then((json) => download(`wortweg-backup-${stamp()}.json`, json, 'application/json'))
+              }}
+            >
+              <Download size={15} /> 导出备份 (JSON，不含牌组音频)
             </button>
             <button className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
               <FileUp size={15} /> 导入备份
@@ -337,8 +368,11 @@ export default function Settings() {
             <button
               className="btn btn-danger h-9"
               onClick={() => {
-                resetAll()
-                setConfirmReset(false)
+                void import('../lib/apkg/storage').then(({ clearAllImported }) => clearAllImported()).finally(() => {
+                  revokeAllObjectUrls()
+                  resetAll()
+                  setConfirmReset(false)
+                })
               }}
             >
               确认清空

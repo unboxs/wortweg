@@ -4,6 +4,40 @@
 
 export type Difficulty = 1 | 2 | 3
 
+/** 牌组里的一句例句。audioName 只是本机媒体文件名，不是网址。 */
+export interface EntryExample {
+  de: string
+  zh?: string
+  audioName?: string
+}
+
+/**
+ * 从用户自己的牌组抄来的语法，缺哪项就没有哪项。
+ * 不在这里补造音标、变位或例句。
+ */
+export interface ImportedGrammar {
+  pos?: string
+  article?: string
+  /** m / f / n，或牌组里原来的写法 */
+  gender?: string
+  plural?: string
+  /** 例如「仅复数」 */
+  number?: string
+  genitive?: string
+  pres3?: string
+  praet?: string
+  partizip?: string
+  aux?: string
+  verbClass?: string
+  separable?: string
+  reflexive?: string
+  government?: string
+  comparative?: string
+  superlative?: string
+  feminine?: string
+  nDeclension?: string
+}
+
 /** 单个词条 */
 export interface Entry {
   id: string
@@ -12,10 +46,26 @@ export interface Entry {
   zh: string
   /** 可选英文释义（内置词库默认只有中文；手动/导入可补充） */
   en?: string
-  /** 可选德语例句 */
+  /** 可选德语例句（练习题用这一条；更多句在 examples） */
   example?: string
+  /** 牌组里的例句（最多几句），含释义和原声音频文件名 */
+  examples?: EntryExample[]
   /** 个人笔记 */
   note?: string
+  /** 牌组自带的音标。没有这项时，已导入词条不回退到词典音标。 */
+  ipa?: string
+  /** 牌组里的语法，供教学卡和练习反馈 */
+  grammar?: ImportedGrammar
+  /** CEFR，例如 A1、B2、A1–B1 */
+  level?: string
+  /** 牌组原声音频文件名（IndexedDB，配合 sourceDeckId） */
+  audioName?: string
+  /** 牌组图片文件名（IndexedDB，配合 sourceDeckId） */
+  imageName?: string
+  /** 已导入牌组的 id。媒体在 IndexedDB，不进 localStorage。 */
+  sourceDeckId?: string
+  /** Anki note guid，用来认出同一条笔记 */
+  sourceGuid?: string
   /** 难度标记 1=简单 2=中等 3=难 */
   difficulty?: Difficulty
   /** 主题标签（来自词库分类或自定义） */

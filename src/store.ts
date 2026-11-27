@@ -12,7 +12,9 @@ import type {
   DistillEvent,
   DistillResult,
   Entry,
+  EntryExample,
   GList,
+  ImportedGrammar,
   Settings,
   ToastMsg,
 } from './types'
@@ -32,6 +34,15 @@ export interface NewEntrySeed {
   zh: string
   en?: string
   example?: string
+  examples?: EntryExample[]
+  note?: string
+  ipa?: string
+  grammar?: ImportedGrammar
+  level?: string
+  audioName?: string
+  imageName?: string
+  sourceDeckId?: string
+  sourceGuid?: string
   tags?: string[]
 }
 
@@ -86,6 +97,15 @@ const makeEntry = (seed: NewEntrySeed): Entry => ({
   zh: seed.zh.trim(),
   en: seed.en?.trim() || undefined,
   example: seed.example?.trim() || undefined,
+  examples: seed.examples?.length ? seed.examples : undefined,
+  note: seed.note?.trim() || undefined,
+  ipa: seed.ipa?.trim() || undefined,
+  grammar: seed.grammar,
+  level: seed.level?.trim() || undefined,
+  audioName: seed.audioName || undefined,
+  imageName: seed.imageName || undefined,
+  sourceDeckId: seed.sourceDeckId,
+  sourceGuid: seed.sourceGuid,
   tags: seed.tags?.length ? seed.tags : ['自定义'],
   mastered: false,
   createdAt: Date.now(),

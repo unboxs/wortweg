@@ -78,18 +78,33 @@ export function SectionTitle({ children, right }: { children: ReactNode; right?:
 }
 
 /** 发音按钮组：正常速 + 慢速 */
-export function SpeakButtons({ text, size = 16 }: { text: string; size?: number }) {
-  const { speak, supported } = useSpeech()
+export function SpeakButtons({
+  text,
+  size = 16,
+  sourceDeckId,
+  audioName,
+}: {
+  text: string
+  size?: number
+  sourceDeckId?: string
+  audioName?: string
+}) {
+  const { speak, speakEntry, supported } = useSpeech()
   const slowRate = useStoreEffectlessSlowRate()
+  const deck = Boolean(sourceDeckId && audioName)
+  const play = (rate?: number) => {
+    if (deck) void speakEntry({ german: text, sourceDeckId, audioName }, rate)
+    else void speak(text, rate)
+  }
   return (
     <span className="inline-flex items-center gap-0.5">
       <button
         onClick={(e) => {
           e.stopPropagation()
-          speak(text)
+          play()
         }}
-        disabled={!supported}
-        title={supported ? '朗读' : '当前浏览器不支持语音'}
+        disabled={!deck && !supported}
+        title={deck ? '播放牌组原声' : supported ? '朗读' : '当前浏览器不支持语音'}
         className="cursor-pointer rounded-lg p-1.5 text-zinc-400 transition hover:bg-amber-400/15 hover:text-amber-500 disabled:opacity-30 dark:text-zinc-500 dark:hover:text-amber-300"
       >
         <Volume2 size={size} />
@@ -97,10 +112,10 @@ export function SpeakButtons({ text, size = 16 }: { text: string; size?: number 
       <button
         onClick={(e) => {
           e.stopPropagation()
-          speak(text, slowRate)
+          play(slowRate)
         }}
-        disabled={!supported}
-        title="慢速朗读"
+        disabled={!deck && !supported}
+        title={deck ? '牌组原声慢放' : '慢速朗读'}
         className="cursor-pointer rounded-lg p-1.5 text-zinc-400 transition hover:bg-amber-400/15 hover:text-amber-500 disabled:opacity-30 dark:text-zinc-500 dark:hover:text-amber-300"
       >
         <Turtle size={size} />

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Turtle, Volume2 } from 'lucide-react'
 import { IpaLine } from './IpaLine'
+import { DeckImage, ExampleList, GrammarLine } from './ImportedBits'
 import { useSpeech } from '../hooks/useSpeech'
 import { transcribed, type Exercise, type ExEntry } from '../lib/exercises'
 
@@ -29,7 +30,8 @@ export default function ExerciseCard({
   ex: Exercise
   onSolved: () => void
 }) {
-  const { speak } = useSpeech()
+  const { speakEntry } = useSpeech()
+  const playWord = (rate?: number) => speakEntry(entry, rate)
   const [typed, setTyped] = useState('')
   const [pickedIdx, setPickedIdx] = useState<number[]>([])
   const [wrong, setWrong] = useState(false)
@@ -85,10 +87,12 @@ export default function ExerciseCard({
         <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-amber-400/15">
           <Check className="text-amber-500 dark:text-amber-300" />
         </motion.div>
+        <DeckImage deckId={entry.sourceDeckId} name={entry.imageName} />
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
-        <IpaLine text={entry.german} />
+        <IpaLine text={entry.german} ipa={entry.ipa} fromImport={entry.fromImport} />
         <div className="mt-2 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
-        {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
+        <ExampleList examples={entry.examples} fallback={entry.example} deckId={entry.sourceDeckId} />
+        <GrammarLine grammar={entry.grammar} level={entry.level} />
       </motion.div>
     )
 
@@ -110,12 +114,12 @@ export default function ExerciseCard({
     </button>
   )
 
-  const audioRow = (text: string) => (
+  const audioRow = (
     <div className="mt-5 flex items-center justify-center gap-3">
-      <button onClick={() => speak(text)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+      <button onClick={() => playWord()} className="btn btn-ghost h-11 w-11 rounded-full px-0" title={entry.audioName ? '牌组原声' : '朗读'}>
         <Volume2 size={18} />
       </button>
-      <button onClick={() => speak(text, useSpeechSlow())} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+      <button onClick={() => playWord(useSpeechSlow())} className="btn btn-ghost h-11 w-11 rounded-full px-0" title={entry.audioName ? '牌组原声慢放' : '慢速朗读'}>
         <Turtle size={17} />
       </button>
     </div>
@@ -127,9 +131,9 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
-        <IpaLine text={entry.german} />
+        <IpaLine text={entry.german} ipa={entry.ipa} fromImport={entry.fromImport} />
         <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
-        {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
+        <ExampleList examples={entry.examples} fallback={entry.example} deckId={entry.sourceDeckId} />
         <div className="mx-auto mt-6 max-w-xs">
           <input
             autoFocus
@@ -140,7 +144,7 @@ export default function ExerciseCard({
             onKeyDown={(e) => e.key === 'Enter' && checkTyped()}
           />
         </div>
-        {audioRow(entry.german)}
+        {audioRow}
       </div>
     )
 
@@ -150,7 +154,7 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{ex.display}</h2>
-        {ex.display && <IpaLine text={ex.display} />}
+        {ex.display && <IpaLine text={ex.display} fromImport={entry.fromImport} />}
         <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           {ex.options!.map((o) => (
@@ -188,7 +192,7 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <div className="text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
-        <button onClick={() => speak(entry.german)} className="btn btn-gold mx-auto mt-6 h-14 w-14 rounded-full px-0">
+        <button onClick={() => playWord()} className="btn btn-gold mx-auto mt-6 h-14 w-14 rounded-full px-0">
           <Volume2 size={22} />
         </button>
         <div className="mx-auto mt-5 max-w-xs">

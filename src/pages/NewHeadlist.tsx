@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
@@ -33,6 +33,8 @@ import { useStore, type NewEntrySeed } from '../store'
 import { normalizeDe } from '../lib/goldlist'
 import { BANK } from '../data/bank'
 import { SpeakButtons } from '../components/ui'
+
+const ImportedPicker = lazy(() => import('../components/ImportedPicker'))
 import type { BankEntry } from '../types'
 
 const CAT_ICONS: Record<string, LucideIcon> = {
@@ -67,7 +69,7 @@ type Picked = { cat: string; e: BankEntry }
 const keyOf = (p: Picked) => `${p.cat}|${p.e.german}`
 
 export default function NewHeadlist() {
-  const [tab, setTab] = useState<'bank' | 'manual'>('bank')
+  const [tab, setTab] = useState<'bank' | 'imported' | 'manual'>('bank')
   return (
     <div className="mx-auto max-w-3xl">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -76,6 +78,7 @@ export default function NewHeadlist() {
           {(
             [
               ['bank', '内置词库'],
+              ['imported', '已导入'],
               ['manual', '手动 / 导入'],
             ] as const
           ).map(([k, label]) => (
@@ -91,7 +94,15 @@ export default function NewHeadlist() {
           ))}
         </div>
       </div>
-      {tab === 'bank' ? <BankPicker /> : <ManualInput />}
+      {tab === 'bank' ? (
+        <BankPicker />
+      ) : tab === 'imported' ? (
+        <Suspense fallback={<p className="text-sm text-zinc-400">正在打开已导入的牌组…</p>}>
+          <ImportedPicker />
+        </Suspense>
+      ) : (
+        <ManualInput />
+      )}
     </div>
   )
 }
@@ -309,7 +320,7 @@ function ManualInput() {
         </button>
       </div>
       <p className="text-xs text-zinc-400 dark:text-zinc-600">
-        提示：从别处复制的生词表（如 Anki 导出、课文词汇表）直接粘贴即可。
+        一行一条的文字可以直接粘贴。完整的 Anki .apkg（含音频和图片）请用「已导入」。
       </p>
     </div>
   )

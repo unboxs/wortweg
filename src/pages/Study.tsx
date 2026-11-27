@@ -3,11 +3,17 @@ import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { ArrowRight, BookOpen, Gem, Headphones, Hash, Keyboard, Link2, PlusCircle, RefreshCw, Shuffle, Turtle, Volume2, X } from 'lucide-react'
 import { useStore, type NewEntrySeed } from '../store'
+import type { Entry } from '../types'
 import { useSpeech } from '../hooks/useSpeech'
+import { useImportedDecks } from '../hooks/useImportedDecks'
 import { unlockMobileSpeech } from '../lib/tts'
 import { normalizeDe } from '../lib/goldlist'
-import { buildExercise, shuffle } from '../lib/exercises'
+import { buildExercise, shuffle, type ExEntry } from '../lib/exercises'
+import { listNotes } from '../lib/apkg/storage'
+import { noteToSeed } from '../lib/apkg/seed'
+import type { StoredNote } from '../lib/apkg/types'
 import { BANK } from '../data/bank'
+import { DeckImage, ExampleList, GrammarLine } from '../components/ImportedBits'
 import { IpaLine } from '../components/IpaLine'
 import { Bar } from '../components/ui'
 import NumberTrainer from '../components/NumberTrainer'
@@ -25,10 +31,31 @@ import SpellDictation from '../components/SpellDictation'
 
 type Mode = 'review' | 'explore' | 'match' | 'spell' | 'numbers'
 
-interface StudyCard {
-  german: string
-  zh: string
-  example?: string
+function entryToCard(entry: Entry): StudyCard {
+  return {
+    german: entry.german,
+    zh: entry.zh,
+    en: entry.en,
+    example: entry.example,
+    examples: entry.examples,
+    note: entry.note,
+    ipa: entry.ipa,
+    fromImport: Boolean(entry.sourceDeckId),
+    grammar: entry.grammar,
+    level: entry.level,
+    sourceDeckId: entry.sourceDeckId,
+    audioName: entry.audioName,
+    imageName: entry.imageName,
+    sourceGuid: entry.sourceGuid,
+    tags: entry.tags,
+  }
+}
+
+interface StudyCard extends ExEntry {
+  en?: string
+  note?: string
+  sourceGuid?: string
+  tags?: string[]
 }
 
 const typingIn = (e: KeyboardEvent): boolean => {
@@ -42,7 +69,8 @@ export default function Study() {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
   const createList = useStore((s) => s.createList)
-  const { speak, speakLesson } = useSpeech()
+  const { speakEntry, speakEntryLesson } = useSpeech()
+  const { decks: importedDecks } = useImportedDecks()
   const practice = settings.studyMode === 'practice'
   // 开场/翻页的自动朗读必须发生在点击调用栈里，iOS 才允许出声。
   // 随后的 effect 再读一次就会叠成两声，用这个标记跳过那一次。
@@ -55,6 +83,26 @@ export default function Study() {
   const [finished, setFinished] = useState(false)
   // 已解出的下标集合；解出才能继续
   const [solved, setSolved] = useState<Set<number>>(() => new Set())
+  const [noteBank, setNoteBank] = useState<Map<string, StoredNote[]>>(new Map())
+  const [notesReady, setNotesReady] = useState(false)
+
+  useEffect(() => {
+    if (importedDecks.length === 0) {
+      setNoteBank(new Map())
+      setNotesReady(true)
+      return
+    }
+    let cancelled = false
+    setNotesReady(false)
+    void Promise.all(importedDecks.map(async (deck) => [deck.id, await listNotes(deck.id)] as const)).then((pairs) => {
+      if (cancelled) return
+      setNoteBank(new Map(pairs))
+      setNotesReady(true)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [importedDecks])
 
   const mastered = useMemo(() => lists.flatMap((l) => l.entries).filter((e) => e.mastered), [lists])
   const used = useMemo(() => new Set(lists.flatMap((l) => l.entries.map((e) => normalizeDe(e.german)))), [lists])
@@ -63,11 +111,11 @@ export default function Study() {
     // 练习模式的题型要等渲染后才知道该不该读，避免在点击里泄题
     if (practice || !settings.autoSpeak || !cards[0]) return
     skipAutoRef.current = true
-    speakLesson(cards[0].german)
+    void speakEntryLesson(cards[0])
   }
 
   const startReview = () => {
-    const next = shuffle(mastered).slice(0, 25)
+    const next = shuffle(mastered).slice(0, 25).map(entryToCard)
     setMode('review')
     setPool(next)
     setIdx(0)
@@ -80,7 +128,7 @@ export default function Study() {
     const cat = BANK.find((c) => c.id === themeId)
     if (!cat) return
     const fresh = cat.entries.filter((e) => !used.has(normalizeDe(e.german)))
-    const next = shuffle(fresh).slice(0, 25)
+    const next = shuffle(fresh).slice(0, 25).map((entry) => ({ german: entry.german, zh: entry.zh, example: entry.example, tags: [themeId] }))
     setMode('explore')
     setTheme(themeId)
     setPool(next)
@@ -90,8 +138,27 @@ export default function Study() {
     speakFirstFromGesture(next)
   }
 
+  const startImported = (deckId: string) => {
+    const deck = importedDecks.find((item) => item.id === deckId)
+    const notes = noteBank.get(deckId)
+    if (!deck || !notes) return
+    const fresh = notes.filter((note) => !used.has(normalizeDe(note.german)))
+    const next = shuffle(fresh).slice(0, 25).map((note) => {
+      const seed = noteToSeed(note, deck.name)
+      return { ...seed, fromImport: true }
+    })
+    setMode('explore')
+    setTheme(`import:${deckId}`)
+    setPool(next)
+    setIdx(0)
+    setFinished(false)
+    setSolved(new Set())
+    speakFirstFromGesture(next)
+  }
+
   const card = pool[idx]
-  const catName = theme ? BANK.find((c) => c.id === theme)?.name : null
+  const importedDeck = theme?.startsWith('import:') ? importedDecks.find((item) => item.id === theme.slice('import:'.length)) : null
+  const catName = importedDeck?.name ?? (theme ? BANK.find((c) => c.id === theme)?.name : null)
   // 每个词条随机派生一种题型（父级持有，便于按题型决定是否自动朗读）
   const ex = useMemo(() => (card ? buildExercise(card) : null), [card, idx])
 
@@ -103,8 +170,8 @@ export default function Study() {
       return
     }
     if (settings.autoSpeak && (!practice || ex.speakOnEnter)) {
-      if (practice) speak(card.german)
-      else speakLesson(card.german)
+      if (practice) void speakEntry(card)
+      else void speakEntryLesson(card)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [idx, card?.german, finished])
@@ -129,7 +196,7 @@ export default function Study() {
     // 教学模式的「下一词」在这次点击里开读，手机自动播放策略才放行
     if (!practice && settings.autoSpeak && pool[n]) {
       skipAutoRef.current = true
-      speakLesson(pool[n].german)
+      void speakEntryLesson(pool[n])
     }
     setIdx(n)
   }
@@ -142,8 +209,8 @@ export default function Study() {
       if (e.key === 'ArrowRight') advance(false)
       else if (e.key === 'ArrowLeft') {
         if (idx > 0) setIdx(idx - 1)
-      } else if (e.key.toLowerCase() === 's') speak(card.german)
-      else if (e.key.toLowerCase() === 'd') speak(card.german, settings.slowRate)
+      }       else if (e.key.toLowerCase() === 's') void speakEntry(card)
+      else if (e.key.toLowerCase() === 'd') void speakEntry(card, settings.slowRate)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -155,11 +222,22 @@ export default function Study() {
     const seeds: NewEntrySeed[] = pool.map((c) => ({
       german: c.german,
       zh: c.zh,
+      en: c.en,
       example: c.example,
-      tags: [theme],
+      examples: c.examples,
+      note: c.note,
+      ipa: c.ipa,
+      grammar: c.grammar,
+      level: c.level,
+      audioName: c.audioName,
+      imageName: c.imageName,
+      sourceDeckId: c.sourceDeckId,
+      sourceGuid: c.sourceGuid,
+      tags: c.tags?.length ? c.tags : [theme],
     }))
     const cat = BANK.find((c) => c.id === theme)
-    const id = createList(cat ? `Headlist · ${cat.name}` : 'Headlist', seeds, theme)
+    const listName = importedDeck ? `Headlist · ${importedDeck.name}` : cat ? `Headlist · ${cat.name}` : 'Headlist'
+    const id = createList(listName, seeds, theme)
     nav(`/lists/${id}`)
   }
 
@@ -223,6 +301,26 @@ export default function Study() {
                 )
               })}
             </div>
+            {importedDecks.length > 0 && (
+              <div className="mt-4 border-t border-zinc-100 pt-4 dark:border-white/5">
+                <div className="mb-2 text-xs font-medium text-amber-600 dark:text-amber-300">已导入</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {importedDecks.map((deck) => (
+                    <button
+                      key={deck.id}
+                      onClick={() => startImported(deck.id)}
+                      disabled={!notesReady}
+                      className="chip border border-zinc-200 text-zinc-600 hover:border-amber-400/60 hover:text-amber-600 disabled:opacity-40 dark:border-white/10 dark:text-zinc-300 dark:hover:text-amber-300"
+                    >
+                      {deck.name}
+                      {deck.level && <span className="opacity-70">{deck.level}</span>}
+                      <span className="tabular-nums opacity-50">{deck.noteCount}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-2 text-[11px] leading-relaxed text-zinc-400">这些词来自你本机导入的牌组，和内置词库分开。有原声就播放牌组里的音频。</p>
+              </div>
+            )}
           </div>
 
           <button onClick={() => setMode('match')} className="card block w-full p-5 text-left transition hover:border-amber-400/60">
@@ -389,17 +487,19 @@ export default function Study() {
               transition={{ duration: 0.22 }}
               className="w-full max-w-xl text-center"
             >
+              <DeckImage deckId={card.sourceDeckId} name={card.imageName} />
               <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{card.german}</h2>
-              <IpaLine text={card.german} />
+              <IpaLine text={card.german} ipa={card.ipa} fromImport={card.fromImport} />
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-4">
                 <div className="text-lg text-zinc-500 dark:text-zinc-400">{card.zh}</div>
-                {card.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{card.example}“</div>}
+                <ExampleList examples={card.examples} fallback={card.example} deckId={card.sourceDeckId} />
+                <GrammarLine grammar={card.grammar} level={card.level} />
               </motion.div>
               <div className="mt-7 flex items-center justify-center gap-3">
-                <button onClick={() => speak(card.german)} className="btn btn-gold h-11 w-11 rounded-full px-0">
+                <button onClick={() => void speakEntry(card)} className="btn btn-gold h-11 w-11 rounded-full px-0" title={card.audioName ? '牌组原声' : '朗读'}>
                   <Volume2 size={18} />
                 </button>
-                <button onClick={() => speak(card.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+                <button onClick={() => void speakEntry(card, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0" title={card.audioName ? '牌组原声慢放' : '慢速'}>
                   <Turtle size={17} />
                 </button>
               </div>
