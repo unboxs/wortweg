@@ -105,6 +105,7 @@ export default function SpellDictation({ onExit }: { onExit: () => void }) {
     if (result !== null || !text.trim()) return
     const ok = transcribed(text, q.word)
     setResult(ok)
+    if (ok) useStore.getState().recordStudy(1)
     setScore((s) => ({ ok: s.ok + (ok ? 1 : 0), total: s.total + 1 }))
   }
 

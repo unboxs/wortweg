@@ -9,6 +9,9 @@ import { normalizeDe } from '../lib/goldlist'
 import { buildExercise, shuffle } from '../lib/exercises'
 import { BANK } from '../data/bank'
 import { IpaLine } from '../components/IpaLine'
+import { Gloss } from '../components/Gloss'
+import { TtsNotice } from '../components/TtsNotice'
+import { ShadowRead } from '../components/ShadowRead'
 import { Bar } from '../components/ui'
 import NumberTrainer from '../components/NumberTrainer'
 import MatchGame from '../components/MatchGame'
@@ -42,6 +45,7 @@ export default function Study() {
   const settings = useStore((s) => s.settings)
   const setSettings = useStore((s) => s.setSettings)
   const createList = useStore((s) => s.createList)
+  const recordStudy = useStore((s) => s.recordStudy)
   const { speak, speakLesson } = useSpeech()
   const practice = settings.studyMode === 'practice'
   // 开场/翻页的自动朗读必须发生在点击调用栈里，iOS 才允许出声。
@@ -55,6 +59,7 @@ export default function Study() {
   const [finished, setFinished] = useState(false)
   // 已解出的下标集合；解出才能继续
   const [solved, setSolved] = useState<Set<number>>(() => new Set())
+  const studied = useRef(new Set<number>())
 
   const mastered = useMemo(() => lists.flatMap((l) => l.entries).filter((e) => e.mastered), [lists])
   const used = useMemo(() => new Set(lists.flatMap((l) => l.entries.map((e) => normalizeDe(e.german)))), [lists])
@@ -73,6 +78,7 @@ export default function Study() {
     setIdx(0)
     setFinished(false)
     setSolved(new Set())
+    studied.current = new Set()
     speakFirstFromGesture(next)
   }
 
@@ -87,6 +93,7 @@ export default function Study() {
     setIdx(0)
     setFinished(false)
     setSolved(new Set())
+    studied.current = new Set()
     speakFirstFromGesture(next)
   }
 
@@ -111,6 +118,10 @@ export default function Study() {
 
   const advance = (mark: boolean) => {
     if (!card) return
+    if (!practice && !studied.current.has(idx)) {
+      studied.current.add(idx)
+      recordStudy(1)
+    }
     if (practice) {
       if (mark) {
         setSolved((prev) => {
@@ -160,7 +171,7 @@ export default function Study() {
     }))
     const cat = BANK.find((c) => c.id === theme)
     const id = createList(cat ? `Headlist · ${cat.name}` : 'Headlist', seeds, theme)
-    nav(`/lists/${id}`)
+    nav(`/write/${id}`)
   }
 
   // ── 独立模式 ──
@@ -259,8 +270,8 @@ export default function Study() {
           </button>
 
           <p className="px-2 text-center text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-600">
-            题型从词条自动派生：抄写、定/不定/否定/物主冠词、补全字母、听写、例句填空、释义→德语、句子重组。
-            冷却中的列表刻意不在这里出现，那 14 天的"想不起来"正是 Goldlist 在工作的声音。
+            教学模式可以听，也可以跟读。列表在冷却、还不能蒸馏时，这里练过的词计入今日目标。
+            冷却中的那一份列表仍然不在这里出现，避免把刚抄的词提前复习掉。
           </p>
         </motion.div>
       </div>
@@ -296,7 +307,7 @@ export default function Study() {
               </p>
               <div className="mt-6 space-y-2">
                 <button className="btn btn-gold w-full" onClick={createFromExplore} disabled={pool.length === 0}>
-                  <PlusCircle size={15} /> 将这 {pool.length} 词创建为 Headlist
+                  <PlusCircle size={15} /> 将这 {pool.length} 词建成 Headlist 并抄写
                 </button>
                 <div className="flex gap-2">
                   <button className="btn btn-ghost flex-1" onClick={() => theme && startExplore(theme)}>
@@ -360,7 +371,7 @@ export default function Study() {
       ) : practice ? (
         <>
           <div className="flex flex-1 items-center justify-center px-5 py-6">
-            <ExerciseCard key={`${idx}-${card.german}`} entry={card} ex={ex!} onSolved={() => advance(true)} />
+            <ExerciseCard key={`${idx}-${card.german}`} entry={card} ex={ex!} onSolved={() => { recordStudy(1); advance(true) }} />
           </div>
 
           <div className="px-5 pb-8">
@@ -392,17 +403,19 @@ export default function Study() {
               <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{card.german}</h2>
               <IpaLine text={card.german} />
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="mt-4">
-                <div className="text-lg text-zinc-500 dark:text-zinc-400">{card.zh}</div>
-                {card.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{card.example}“</div>}
+                <Gloss>{card.zh}</Gloss>
+                {card.example && <div className="mt-3 text-sm italic text-zinc-600 dark:text-zinc-300">„{card.example}“</div>}
               </motion.div>
               <div className="mt-7 flex items-center justify-center gap-3">
-                <button onClick={() => speak(card.german)} className="btn btn-gold h-11 w-11 rounded-full px-0">
+                <button onClick={() => speak(card.german)} className="btn btn-gold h-11 w-11 rounded-full px-0" aria-label="朗读">
                   <Volume2 size={18} />
                 </button>
-                <button onClick={() => speak(card.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+                <button onClick={() => speak(card.german, settings.slowRate)} className="btn btn-ghost h-11 w-11 rounded-full px-0" aria-label="慢速朗读">
                   <Turtle size={17} />
                 </button>
               </div>
+              <TtsNotice text={card.german} />
+              <ShadowRead text={card.german} />
             </motion.div>
           </div>
 
@@ -416,7 +429,7 @@ export default function Study() {
               </button>
             </div>
             <p className="mt-3 text-center text-[11px] text-zinc-400 dark:text-zinc-600">
-              看词 · 听音（先常速，再慢速）· 走到下一个 —— 觉得记住了，切到「练习」检验自己（<span className="kbd">S</span> 朗读
+              看词 · 听音（先常速，再慢速）· 跟读 · 走到下一个。觉得记住了，再切到「练习」（<span className="kbd">S</span> 朗读
               <span className="kbd ml-1">D</span> 慢速）
             </p>
           </div>

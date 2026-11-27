@@ -2,8 +2,10 @@ import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Turtle, Volume2 } from 'lucide-react'
 import { IpaLine } from './IpaLine'
+import { Gloss } from './Gloss'
+import { TtsNotice } from './TtsNotice'
 import { useSpeech } from '../hooks/useSpeech'
-import { transcribed, type Exercise, type ExEntry } from '../lib/exercises'
+import { explainWrong, nounPhrase, transcribed, type Exercise, type ExEntry } from '../lib/exercises'
 
 /**
  * 练习卡：根据题型渲染，解出即自动翻下一词。
@@ -33,6 +35,7 @@ export default function ExerciseCard({
   const [typed, setTyped] = useState('')
   const [pickedIdx, setPickedIdx] = useState<number[]>([])
   const [wrong, setWrong] = useState(false)
+  const [feedback, setFeedback] = useState('')
   const [revealed, setRevealed] = useState(false)
   const [solved, setSolved] = useState(false)
 
@@ -41,9 +44,9 @@ export default function ExerciseCard({
     setSolved(true)
     window.setTimeout(onSolved, 750)
   }
-  const fail = () => {
+  const fail = (attempt = '') => {
     setWrong(true)
-    window.setTimeout(() => setWrong(false), 550)
+    setFeedback(explainWrong(entry, ex, attempt))
   }
 
   // ── 所有钩子必须在任何提前 return 之前（React 规则）──
@@ -52,6 +55,7 @@ export default function ExerciseCard({
     setTyped('')
     setPickedIdx([])
     setWrong(false)
+    setFeedback('')
     setRevealed(false)
     setSolved(false)
   }, [ex])
@@ -63,7 +67,7 @@ export default function ExerciseCard({
     const built = pickedIdx.map((i) => ex.shuffled![i]).join(' ')
     if (transcribed(built, ex.answer ?? '')) succeed()
     else {
-      fail()
+      fail(built)
       setPickedIdx([])
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -72,7 +76,18 @@ export default function ExerciseCard({
   const checkTyped = () => {
     if (solved) return
     if (transcribed(typed, ex.answer ?? '')) succeed()
-    else fail()
+    else fail(typed)
+  }
+
+  const feedbackLine = feedback ? (
+    <p role="alert" className="mx-auto mt-4 max-w-md text-base font-medium leading-relaxed text-red-600 dark:text-red-300">
+      {feedback}
+    </p>
+  ) : null
+
+  const clearFeedback = () => {
+    setFeedback('')
+    setWrong(false)
   }
 
   const inputCls = `input text-center font-mono ${wrong ? 'border-red-400 dark:border-red-500/60' : ''}`
@@ -87,7 +102,7 @@ export default function ExerciseCard({
         </motion.div>
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
         <IpaLine text={entry.german} />
-        <div className="mt-2 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
+        <Gloss className="mt-2">{entry.zh}</Gloss>
         {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
       </motion.div>
     )
@@ -111,14 +126,17 @@ export default function ExerciseCard({
   )
 
   const audioRow = (text: string) => (
-    <div className="mt-5 flex items-center justify-center gap-3">
-      <button onClick={() => speak(text)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
-        <Volume2 size={18} />
-      </button>
-      <button onClick={() => speak(text, useSpeechSlow())} className="btn btn-ghost h-11 w-11 rounded-full px-0">
-        <Turtle size={17} />
-      </button>
-    </div>
+    <>
+      <div className="mt-5 flex items-center justify-center gap-3">
+        <button onClick={() => speak(text)} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+          <Volume2 size={18} />
+        </button>
+        <button onClick={() => speak(text, useSpeechSlow())} className="btn btn-ghost h-11 w-11 rounded-full px-0">
+          <Turtle size={17} />
+        </button>
+      </div>
+      <TtsNotice text={text} />
+    </>
   )
 
   // ── 抄写：词 + 释义都给出，打一遍 ──
@@ -128,7 +146,7 @@ export default function ExerciseCard({
         {promptBadge}
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{entry.german}</h2>
         <IpaLine text={entry.german} />
-        <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
+        <Gloss className="mt-4">{entry.zh}</Gloss>
         {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
         <div className="mx-auto mt-6 max-w-xs">
           <input
@@ -136,10 +154,14 @@ export default function ExerciseCard({
             className={inputCls}
             placeholder="把这个词打出来…"
             value={typed}
-            onChange={(e) => setTyped(e.target.value)}
+            onChange={(e) => {
+              setTyped(e.target.value)
+              clearFeedback()
+            }}
             onKeyDown={(e) => e.key === 'Enter' && checkTyped()}
           />
         </div>
+        {feedbackLine}
         {audioRow(entry.german)}
       </div>
     )
@@ -151,14 +173,15 @@ export default function ExerciseCard({
         {promptBadge}
         <h2 className="px-2 text-4xl font-bold tracking-tight sm:text-5xl">{ex.display}</h2>
         {ex.display && <IpaLine text={ex.display} />}
-        <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
+        <Gloss className="mt-4">{entry.zh}</Gloss>
         <div className="mt-6 flex flex-wrap justify-center gap-2">
           {ex.options!.map((o) => (
-            <button key={o} onClick={() => (o === ex.answer ? succeed() : fail())} className="btn btn-ghost h-12 min-w-28 font-mono text-base">
+            <button key={o} onClick={() => (o === ex.answer ? succeed() : fail(o))} className="btn btn-ghost h-12 min-w-28 font-mono text-base">
               {o}
             </button>
           ))}
         </div>
+        {feedbackLine}
       </div>
     )
 
@@ -168,17 +191,21 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 font-mono text-4xl font-bold tracking-widest sm:text-5xl">{ex.display}</h2>
-        <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
+        <Gloss className="mt-4">{entry.zh}</Gloss>
         <div className="mx-auto mt-6 max-w-[14rem]">
           <input
             autoFocus
             className={inputCls}
             placeholder="依次输入缺失的字母…"
             value={typed}
-            onChange={(e) => setTyped(e.target.value)}
+            onChange={(e) => {
+              setTyped(e.target.value)
+              clearFeedback()
+            }}
             onKeyDown={(e) => e.key === 'Enter' && checkTyped()}
           />
         </div>
+        {feedbackLine}
       </div>
     )
 
@@ -187,7 +214,7 @@ export default function ExerciseCard({
     return (
       <div className="w-full max-w-xl text-center">
         {promptBadge}
-        <div className="text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
+        <Gloss>{entry.zh}</Gloss>
         <button onClick={() => speak(entry.german)} className="btn btn-gold mx-auto mt-6 h-14 w-14 rounded-full px-0">
           <Volume2 size={22} />
         </button>
@@ -198,7 +225,10 @@ export default function ExerciseCard({
             className={inputCls}
             placeholder="写下你听到的…"
             value={typed}
-            onChange={(e) => setTyped(e.target.value)}
+            onChange={(e) => {
+              setTyped(e.target.value)
+              clearFeedback()
+            }}
             onKeyDown={(e) => e.key === 'Enter' && checkTyped()}
           />
         </div>
@@ -207,6 +237,8 @@ export default function ExerciseCard({
         ) : (
           hintLink('听不出来？看提示')
         )}
+        {feedbackLine}
+        <TtsNotice text={entry.german} />
       </div>
     )
 
@@ -216,7 +248,7 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 font-mono text-2xl font-semibold leading-relaxed sm:text-3xl">{ex.display}</h2>
-        <div className="mt-4 text-lg text-zinc-500 dark:text-zinc-400">{entry.zh}</div>
+        <Gloss className="mt-4">{entry.zh}</Gloss>
         <div className="mx-auto mt-6 max-w-xs">
           <input
             autoFocus
@@ -224,10 +256,14 @@ export default function ExerciseCard({
             className={inputCls}
             placeholder="把空缺的词填上…"
             value={typed}
-            onChange={(e) => setTyped(e.target.value)}
+            onChange={(e) => {
+              setTyped(e.target.value)
+              clearFeedback()
+            }}
             onKeyDown={(e) => e.key === 'Enter' && checkTyped()}
           />
         </div>
+        {feedbackLine}
       </div>
     )
 
@@ -237,7 +273,9 @@ export default function ExerciseCard({
       <div className="w-full max-w-xl text-center">
         {promptBadge}
         <h2 className="px-2 text-3xl font-bold tracking-tight sm:text-4xl">{entry.zh}</h2>
-        <div className="mt-3 text-sm text-zinc-400 dark:text-zinc-500">它的德语是——（名词请带冠词）</div>
+        <div className="mt-3 text-base text-zinc-700 dark:text-zinc-200">
+          {nounPhrase(entry.german) ? '它的德语是——（名词请带冠词）' : '它的德语是——'}
+        </div>
         <div className="mx-auto mt-6 max-w-xs">
           <input
             autoFocus
@@ -245,7 +283,10 @@ export default function ExerciseCard({
             className={inputCls}
             placeholder="德语…"
             value={typed}
-            onChange={(e) => setTyped(e.target.value)}
+            onChange={(e) => {
+              setTyped(e.target.value)
+              clearFeedback()
+            }}
             onKeyDown={(e) => e.key === 'Enter' && checkTyped()}
           />
         </div>
@@ -254,6 +295,7 @@ export default function ExerciseCard({
         ) : (
           hintLink('想不起来？看提示')
         )}
+        {feedbackLine}
       </div>
     )
 
@@ -263,7 +305,8 @@ export default function ExerciseCard({
   return (
     <div className="w-full max-w-xl text-center">
       {promptBadge}
-      <div className="text-sm text-zinc-400 dark:text-zinc-500">{entry.zh} —— 按正确顺序点击组句</div>
+      <Gloss className="text-center">{entry.zh}</Gloss>
+      <div className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">按正确顺序点击组句</div>
 
       {/* 已选区 */}
       <div className={`mx-auto mt-5 flex min-h-16 max-w-lg flex-wrap items-center justify-center gap-2 rounded-2xl border p-3 ${wrong ? 'border-red-400 dark:border-red-500/60' : 'border-zinc-200 dark:border-white/10'}`}>
@@ -299,6 +342,7 @@ export default function ExerciseCard({
           )
         })}
       </div>
+      {feedbackLine}
     </div>
   )
 }

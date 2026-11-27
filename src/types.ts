@@ -34,8 +34,15 @@ export interface GList {
   /** 0 = Headlist，n = D(n)，即已完成 n 次蒸馏 */
   round: number
   createdAt: number
-  /** 冷却时钟起点：创建时间或最近一次蒸馏时间 */
+  /** 冷却时钟起点：抄写完成时间，或最近一次蒸馏时间。抄写未完成时不作为冷却起点。 */
   lastActivityAt: number
+  /**
+   * true = 还没抄写完，不进入冷却，也不能蒸馏。
+   * 缺省或 false = 已经抄过（包括这次改动之前就存在的列表）。旧列表的 lastActivityAt 保持原样。
+   */
+  writePending?: boolean
+  /** 抄写进度（词条 id）。抄完并进入冷却后清空。 */
+  copiedIds?: string[]
   entries: Entry[]
 }
 
@@ -72,7 +79,7 @@ export interface Settings {
   slowRate: number
   /** 指定德语语音的 voiceURI（空 = 自动选择） */
   voiceURI: string
-  /** 蒸馏时自动朗读 */
+  /** 出现词条时自动朗读（抄写、教学、蒸馏）。关掉后仍可手动点朗读。 */
   autoSpeak: boolean
   /** 蒸馏时开启"抄写模式"（可选仪式感，不强制） */
   writeMode: boolean

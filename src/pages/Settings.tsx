@@ -98,7 +98,7 @@ export default function Settings() {
           </div>
           <div>
             <div className="mb-2 flex items-baseline justify-between">
-              <label className="text-sm font-medium">每日目标（蒸馏检视词条数）</label>
+              <label className="text-sm font-medium">每日目标</label>
               <span className="text-sm font-semibold tabular-nums text-amber-600 dark:text-amber-300">{settings.dailyGoal} 词</span>
             </div>
             <input
@@ -107,7 +107,9 @@ export default function Settings() {
               value={settings.dailyGoal}
               onChange={(e) => setSettings({ dailyGoal: Number(e.target.value) })}
             />
-            <p className="mt-1.5 text-[11px] text-zinc-400 dark:text-zinc-500">设为 0 关闭每日目标。</p>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
+              有列表可以蒸馏时，计蒸馏检视的词条。还没有可蒸馏的列表时（例如第一份还在冷却），计学习模式里练过的词条，空等不算失败。设为 0 关闭。
+            </p>
           </div>
           <div>
             <label className="mb-2 block text-sm font-medium">释义显示语言</label>
@@ -218,12 +220,24 @@ export default function Settings() {
                 ? '语音列表来自你的操作系统/浏览器。Windows 推荐安装德语语音包以获得最佳音质。试听短语是「Guten Tag! Ich lerne gern Deutsch.」。'
                 : '在线发音失败时用这里的系统嗓音接着读。上面的试听针对当前在线发音源。'}
             </p>
-            {voices.length === 0 && (
-              <p className="mt-1.5 text-[11px] leading-relaxed text-red-500 dark:text-red-400">
-                {isMobileSpeechDevice()
-                  ? '这台手机没有列出德语系统语音。点朗读时会改用在线德语发音（需要网络）。'
-                  : '当前没有可用的德语语音（所以朗读会被静默跳过）。安装方法：Windows 设置 → 时间和语言 → 语言 → 添加德语，勾选"语音转换/文本转语音"组件，然后重启浏览器。Edge 浏览器自带微软在线德语语音，可直接使用。'}
-              </p>
+            {settings.ttsSource === 'system' && voices.length === 0 && (
+              <div className="mt-2 rounded-lg border border-amber-400/50 bg-amber-400/10 px-3 py-3 text-[12px] leading-relaxed text-amber-950 dark:text-amber-50">
+                <p className="font-medium">这台设备没有德语系统语音。点朗读不会静默跳过，页面上会说明没读出来。</p>
+                <p className="mt-1">可以直接改用在线发音。密钥在 Cloudflare，不在这个网页里。</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" className="btn btn-gold h-9" onClick={() => setSettings({ ttsSource: 'voicerss', onlineVoice: 'Hanna' })}>
+                    改用 VoiceRSS
+                  </button>
+                  <button type="button" className="btn btn-ghost h-9" onClick={() => setSettings({ ttsSource: 'elevenlabs', onlineVoice: 'Lily' })}>
+                    改用 ElevenLabs
+                  </button>
+                </div>
+                <p className="mt-2 text-[11px] opacity-80">
+                  {isMobileSpeechDevice()
+                    ? '手机通常没有德语系统语音，用上面的在线源即可。'
+                    : '也可以在系统里安装德语语音包后重启浏览器。Windows：设置 → 时间和语言 → 添加德语，并勾选语音组件。'}
+                </p>
+              </div>
             )}
           </div>
           <div className="grid gap-5 sm:grid-cols-2">
@@ -244,9 +258,14 @@ export default function Settings() {
                 value={settings.slowRate} onChange={(e) => setSettings({ slowRate: Number(e.target.value) })} />
             </div>
           </div>
-          <label className="flex cursor-pointer items-center justify-between text-sm">
-            <span>蒸馏时自动朗读每个词</span>
-            <input type="checkbox" className="h-4 w-4 accent-amber-400"
+          <label className="flex cursor-pointer items-start justify-between gap-4 text-sm">
+            <span>
+              出现词条时自动朗读
+              <span className="mt-1 block text-[11px] font-normal leading-relaxed text-zinc-400 dark:text-zinc-500">
+                抄写页：词一出现读常速一遍，抄对后再读慢速一遍，读完才进入下一个。教学和蒸馏也会自动读。关掉后这两次不会自己开始，手动朗读按钮仍然可用。
+              </span>
+            </span>
+            <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-amber-400"
               checked={settings.autoSpeak} onChange={(e) => setSettings({ autoSpeak: e.target.checked })} />
           </label>
         </div>
@@ -319,10 +338,17 @@ export default function Settings() {
         <SectionTitle>关于 Wortweg</SectionTitle>
         <div className="card space-y-2 p-5 text-sm text-zinc-500 dark:text-zinc-400">
           <p>
-            Wortweg（"词语之路"）忠实实现 Goldlist Method：创建 20–25 词的 Headlist → 冷却
-            {' '}{settings.cooldownDays} 天 → 蒸馏只留没记住的 → 循环直到清空。不闪卡、不逼回忆，让自然遗忘曲线替你筛选。
+            Wortweg（"词语之路"）用 Goldlist：抄写一份 Headlist → 冷却
+            {' '}{settings.cooldownDays} 天 → 蒸馏只留没记住的。面向 B1 和 B2，不闪卡、不逼回忆。
           </p>
-          <p>内置词库：{BANK.length} 个主题、{BANK.reduce((s, c) => s + c.entries.length, 0)} 个 B1–B2 词条/短语，全部存储于本机浏览器。</p>
+          <p>
+            内置词库共 {BANK.reduce((s, c) => s + c.entries.length, 0)} 条、{BANK.length} 个主题：
+            A1 {BANK.find((c) => c.id === 'a1')?.entries.length ?? 0}、
+            A2 {BANK.find((c) => c.id === 'a2')?.entries.length ?? 0}、
+            B1–B2 主题 {BANK.filter((c) => !c.id.startsWith('jc') && c.id !== 'a1' && c.id !== 'a2').reduce((s, c) => s + c.entries.length, 0)}、
+            教材分类 {BANK.filter((c) => c.id.startsWith('jc')).reduce((s, c) => s + c.entries.length, 0)}。
+            不是只有 B2。全部存在本机浏览器。
+          </p>
           <p className="text-xs">v1.0 · 学习数据只在本机。在线发音经本站 Cloudflare 代理，密钥不在浏览器里。</p>
         </div>
       </section>

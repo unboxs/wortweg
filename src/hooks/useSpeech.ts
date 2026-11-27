@@ -1,18 +1,33 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useStore } from '../store'
-import { germanVoices, initVoices, isMobileSpeechDevice, speak as say, stopSpeaking, ttsSupported } from '../lib/tts'
+import {
+  germanVoices,
+  initVoices,
+  isMobileSpeechDevice,
+  readTtsStatus,
+  speak as say,
+  stopSpeaking,
+  TTS_STATUS_EVENT,
+  ttsSupported,
+  type TtsStatus,
+} from '../lib/tts'
 
-/** 朗读 hook：读取设置里的语音/语速，自动降级无语音环境 */
+/** 朗读 hook：读不出来时 ttsStatus 会变成 silent，界面必须把它显示出来。 */
 export function useSpeech() {
   const voiceURI = useStore((s) => s.settings.voiceURI)
   const rate = useStore((s) => s.settings.rate)
   const [busy, setBusy] = useState(false)
+  const [ttsStatus, setTtsStatus] = useState<TtsStatus>(() => readTtsStatus())
+
+  useEffect(() => {
+    const onStatus = (event: Event) => setTtsStatus((event as CustomEvent<TtsStatus>).detail)
+    window.addEventListener(TTS_STATUS_EVENT, onStatus)
+    return () => window.removeEventListener(TTS_STATUS_EVENT, onStatus)
+  }, [])
 
   const speak = useCallback(
     async (text: string, r?: number) => {
-      // 手机没有 speechSynthesis 时仍可走在线音频；桌面保持「不支持就直接返回」
       if (!text.trim()) return
-      if (!ttsSupported() && !isMobileSpeechDevice()) return
       setBusy(true)
       try {
         await say(text, { rate: r ?? rate, voiceURI })
@@ -27,7 +42,6 @@ export function useSpeech() {
   const speakLesson = useCallback(
     async (text: string) => {
       if (!text.trim()) return
-      if (!ttsSupported() && !isMobileSpeechDevice()) return
       setBusy(true)
       try {
         await say(text, { rate, voiceURI, thenSlow: true })
@@ -38,7 +52,7 @@ export function useSpeech() {
     [rate, voiceURI],
   )
 
-  return { speak, speakLesson, stop: stopSpeaking, supported: ttsSupported() || isMobileSpeechDevice(), busy }
+  return { speak, speakLesson, stop: stopSpeaking, supported: ttsSupported() || isMobileSpeechDevice(), busy, ttsStatus }
 }
 
 /** 语音列表 hook（设置页选择德语语音用） */

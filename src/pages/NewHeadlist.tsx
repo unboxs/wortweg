@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import {
   BookOpen,
@@ -66,10 +66,15 @@ const CAT_ICONS: Record<string, LucideIcon> = {
 type Picked = { cat: string; e: BankEntry }
 const keyOf = (p: Picked) => `${p.cat}|${p.e.german}`
 
+const B1_FOCUS = ['alltag', 'arbeit', 'reisen', 'gesundheit', 'verben', 'meinung', 'zeit']
+
 export default function NewHeadlist() {
+  const [params] = useSearchParams()
+  const from = params.get('from')
   const [tab, setTab] = useState<'bank' | 'manual'>('bank')
   return (
     <div className="mx-auto max-w-3xl">
+      <PathBanner from={from} />
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-xl font-bold tracking-tight">新建 Headlist</h1>
         <div className="flex rounded-xl border border-zinc-200 p-1 dark:border-white/10">
@@ -91,18 +96,41 @@ export default function NewHeadlist() {
           ))}
         </div>
       </div>
-      {tab === 'bank' ? <BankPicker /> : <ManualInput />}
+      {tab === 'bank' ? <BankPicker from={from} /> : <ManualInput />}
     </div>
   )
 }
 
+function PathBanner({ from }: { from: string | null }) {
+  if (from === 'b1')
+    return (
+      <div className="card mb-5 p-4 text-sm leading-relaxed">
+        <div className="font-semibold">B1 入口</div>
+        <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+          给准备 Goethe / telc B1 的成人。下面先打开日常、工作、旅行这些 B1 常用主题。建议 20–25 词，少一些也可以。选完要逐词抄写，冷却才会开始。这一版没有完整的考试大纲。
+        </p>
+      </div>
+    )
+  if (from === 'zoubian')
+    return (
+      <div className="card mb-5 p-4 text-sm leading-relaxed">
+        <div className="font-semibold">《走遍德国》入口</div>
+        <p className="mt-1 text-zinc-600 dark:text-zinc-300">
+          按课次对齐的词表还没做，这里不会假装已经对上每一课。可以先从教材主题里挑一批，例如「教材·考试用语」只有 6 个词，适合当第一份小 Headlist。选完同样要抄写。
+        </p>
+      </div>
+    )
+  return null
+}
+
 // ─── 从内置词库挑选 ─────────────────────────────────────────────────────
 
-function BankPicker() {
+function BankPicker({ from }: { from: string | null }) {
   const nav = useNavigate()
   const createList = useStore((s) => s.createList)
   const lists = useStore((s) => s.lists)
-  const [cat, setCat] = useState(BANK[0].id)
+  const [cat, setCat] = useState(from === 'zoubian' ? 'jcpruefung' : from === 'b1' ? 'alltag' : BANK[0].id)
+  const [focusOnly, setFocusOnly] = useState(from === 'b1' || from === 'zoubian')
   const [query, setQuery] = useState('')
   const [picked, setPicked] = useState<Picked[]>([])
   const [name, setName] = useState('')
@@ -148,7 +176,7 @@ function BankPicker() {
       tags: [p.cat],
     }))
     const id = createList(name || (themeName ? `Headlist · ${themeName}` : `Headlist · ${new Date().toLocaleDateString()}`), seeds, theme)
-    nav(`/lists/${id}`)
+    nav(`/write/${id}`)
   }
 
   return (
@@ -156,7 +184,16 @@ function BankPicker() {
       {/* 分类 */}
       {!searching && (
         <div className="mb-4 flex flex-wrap gap-2">
-          {BANK.map((c) => {
+          {focusOnly && (
+            <button type="button" onClick={() => setFocusOnly(false)} className="chip border border-zinc-200 text-zinc-500 dark:border-white/10 dark:text-zinc-400">
+              显示全部主题
+            </button>
+          )}
+          {BANK.filter((c) => {
+            if (!focusOnly) return true
+            if (from === 'zoubian') return c.id.startsWith('jc')
+            return B1_FOCUS.includes(c.id)
+          }).map((c) => {
             const Icon = CAT_ICONS[c.id] ?? Type
             return (
               <button
@@ -240,14 +277,14 @@ function BankPicker() {
           >
             {picked.length}
           </motion.span>
-          <span className="text-xs text-zinc-400">已选 · 建议 20–25</span>
+          <span className="text-xs text-zinc-400">已选 · 建议 20–25，短列表也可以</span>
         </div>
         <button onClick={random25} className="btn btn-ghost h-9">
           <Shuffle size={14} /> 随机选 25
         </button>
         <input className="input h-9 min-w-40 flex-1" placeholder="列表名（可留空自动生成）" value={name} onChange={(e) => setName(e.target.value)} />
         <button onClick={create} className="btn btn-gold h-9" disabled={picked.length === 0}>
-          <PlusCircle size={15} /> 创建
+          <PlusCircle size={15} /> 去抄写
         </button>
       </div>
     </div>
@@ -280,7 +317,7 @@ function ManualInput() {
       name || `Headlist · ${new Date().toLocaleDateString()}`,
       seeds,
     )
-    nav(`/lists/${id}`)
+    nav(`/write/${id}`)
   }
 
   return (
@@ -305,11 +342,11 @@ function ManualInput() {
           解析出 <span className="font-semibold text-amber-600 dark:text-amber-300 tabular-nums">{seeds.length}</span> 个词条
         </span>
         <button onClick={create} className="btn btn-gold" disabled={seeds.length === 0}>
-          <PlusCircle size={15} /> 创建 Headlist
+          <PlusCircle size={15} /> 去抄写
         </button>
       </div>
       <p className="text-xs text-zinc-400 dark:text-zinc-600">
-        提示：从别处复制的生词表（如 Anki 导出、课文词汇表）直接粘贴即可。
+        粘贴后还要逐词抄写一遍，冷却才会开始。从别处复制的生词表（如 Anki 导出、课文词汇表）可以直接贴进来。
       </p>
     </div>
   )

@@ -9,6 +9,7 @@ import ListDetail from './pages/ListDetail'
 import NewHeadlist from './pages/NewHeadlist'
 import Distill from './pages/Distill'
 import Study from './pages/Study'
+import WriteList from './pages/WriteList'
 import Progress from './pages/Progress'
 import Settings from './pages/Settings'
 
@@ -51,6 +52,8 @@ export default function App() {
         <Route path="distill/:id" element={<Distill />} />
         {/* 学习模式：冷却期的沉浸温习/探索，无导航 */}
         <Route path="study" element={<Study />} />
+        {/* 抄写：新建列表后、冷却开始前 */}
+        <Route path="write/:id" element={<WriteList />} />
       </Routes>
     </BrowserRouter>
   )

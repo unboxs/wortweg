@@ -5,6 +5,7 @@ import { useStore } from '../store'
 import { levelProgress } from '../lib/xp'
 import { dayKey } from '../lib/goldlist'
 import Toasts from './Toasts'
+import { TtsNotice } from './TtsNotice'
 
 const NAV = [
   { to: '/', label: '仪表盘', icon: LayoutDashboard, end: true },
@@ -78,7 +79,7 @@ export default function Layout() {
           </div>
           <div>
             <div className="text-[15px] font-bold leading-none tracking-tight">Wortweg</div>
-            <div className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Goldlist 蒸馏 · 德语 B2</div>
+            <div className="mt-1 text-[10px] text-zinc-400 dark:text-zinc-500">Goldlist 蒸馏 · 德语 B1–B2</div>
           </div>
         </div>
         <nav className="flex-1 space-y-1 px-3">
@@ -114,7 +115,10 @@ export default function Layout() {
       <header className="sticky top-0 z-40 flex items-center justify-between border-b border-zinc-200 bg-white/80 px-4 py-3 backdrop-blur md:hidden dark:border-white/10 dark:bg-zinc-950/70">
         <div className="flex items-center gap-2">
           <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-400 text-sm font-bold text-zinc-950">W</div>
-          <span className="font-bold tracking-tight">Wortweg</span>
+          <span className="leading-tight">
+            <span className="block font-bold tracking-tight">Wortweg</span>
+            <span className="block text-[10px] text-zinc-400">Goldlist · B1–B2</span>
+          </span>
         </div>
         <ThemeToggle />
       </header>
@@ -129,6 +133,7 @@ export default function Layout() {
           transition={{ duration: 0.18 }}
           className="mx-auto w-full max-w-5xl px-4 pb-28 pt-6 md:px-8 md:pb-16 md:pt-8"
         >
+          <TtsNotice />
           <Outlet />
         </motion.main>
       </div>

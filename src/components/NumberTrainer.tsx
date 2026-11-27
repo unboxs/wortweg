@@ -125,6 +125,7 @@ function ListenDrill({ max, onScore }: { max: number; onScore: (ok: boolean) => 
     const ok = v === n
     setResult(ok)
     onScore(ok)
+    if (ok) useStore.getState().recordStudy(1)
     if (!ok) speak(de) // 答错立刻重听
   }
 
@@ -210,6 +211,7 @@ function SpellDrill({ max, onScore }: { max: number; onScore: (ok: boolean) => v
     const ok = sameGerman(text, de)
     setResult(ok)
     onScore(ok)
+    if (ok) useStore.getState().recordStudy(1)
     if (!ok) speak(de)
   }
 
@@ -298,7 +300,9 @@ function SequenceDrill({ max, onScore }: { max: number; onScore: (ok: boolean) =
     setBuf('')
     if (next.length === seq.length) {
       setPhase('checked')
-      onScore(next.every((x, i) => x === seq[i]))
+      const ok = next.every((x, i) => x === seq[i])
+      onScore(ok)
+      if (ok) useStore.getState().recordStudy(1)
     }
   }
 

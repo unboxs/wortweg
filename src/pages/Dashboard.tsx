@@ -5,8 +5,8 @@ import { useStore } from '../store'
 import {
   ageDays,
   cooldownProgress,
-  dayKey,
   daysLeft,
+  goalProgress,
   masteredEntries,
   roundName,
   stageOf,
@@ -22,10 +22,12 @@ export default function Dashboard() {
   const daily = useStore((s) => s.daily)
   const history = useStore((s) => s.history)
   const mastered = totalMastered(lists)
-  const count = daily.day === dayKey() ? daily.count : 0
+  const goal = goalProgress(lists, settings.cooldownDays, daily)
+  const count = goal.shown
   const goalPct = settings.dailyGoal > 0 ? count / settings.dailyGoal : 0
 
   const withStage = lists.map((l) => ({ l, stage: stageOf(l, settings.cooldownDays) }))
+  const writing = withStage.filter((x) => x.stage === 'writing')
   const ready = withStage.filter((x) => x.stage === 'ready').sort((a, b) => a.l.lastActivityAt - b.l.lastActivityAt)
   const cooling = withStage.filter((x) => x.stage === 'cooling').sort((a, b) => a.l.lastActivityAt - b.l.lastActivityAt)
   const rate = successRate(history)
@@ -53,7 +55,11 @@ export default function Dashboard() {
               <span className="text-[9px] text-zinc-400">/ {settings.dailyGoal} 今日</span>
             </Ring>
             <div className="space-y-1.5 text-xs text-zinc-500 dark:text-zinc-400">
-              <div>今日目标：蒸馏检视 {settings.dailyGoal} 词条</div>
+              <div>
+                {goal.mode === 'practice'
+                  ? `今日目标：学习模式练 ${settings.dailyGoal} 个词（现在没有可蒸馏的列表，练习算数）`
+                  : `今日目标：蒸馏检视 ${settings.dailyGoal} 词条`}
+              </div>
               {rate !== null && (
                 <div>
                   蒸馏成功率 <span className="font-semibold text-amber-600 dark:text-amber-300">{Math.round(rate * 100)}%</span>
@@ -66,6 +72,25 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {writing.length > 0 && (
+        <section>
+          <SectionTitle right={<span className="text-[11px] text-zinc-400">抄完才开始冷却</span>}>待抄写</SectionTitle>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {writing.map(({ l }) => (
+              <Link key={l.id} to={`/write/${l.id}`} className="card block border-amber-400/40 p-4 transition hover:border-amber-400">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate font-medium">{l.name}</span>
+                  <StageBadge stage="writing" />
+                </div>
+                <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">
+                  已抄 {(l.copiedIds ?? []).length} / {l.entries.length}。冷却还没开始。
+                </p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* 可蒸馏 */}
       {ready.length > 0 && (
@@ -104,7 +129,7 @@ export default function Dashboard() {
       {/* 冷却中 */}
       {cooling.length > 0 && (
         <section>
-          <SectionTitle right={<Link to="/study" className="text-[11px] text-amber-600 hover:underline dark:text-amber-300">等待时去学习模式转转</Link>}>冷却中 —— 让大脑慢慢沉淀</SectionTitle>
+          <SectionTitle right={<Link to="/study" className="text-[11px] text-amber-600 hover:underline dark:text-amber-300">冷却期的正事：去学习模式</Link>}>冷却中 —— 这份列表先放下</SectionTitle>
           <div className="grid gap-3 sm:grid-cols-2">
             {cooling.map(({ l }) => {
               const pct = cooldownProgress(l, settings.cooldownDays)
@@ -135,16 +160,37 @@ export default function Dashboard() {
             <BookOpen size={16} className="text-amber-500 dark:text-amber-300" /> Goldlist 原则
           </div>
           <ul className="mt-3 space-y-2 text-sm text-zinc-600 dark:text-zinc-300">
-            <li>· 每 20–25 词一份 Headlist，写完就放下，不去复习</li>
-            <li>· 冷却 {settings.cooldownDays} 天后回来蒸馏：只保留还没记住的词</li>
-            <li>· 不强迫回忆、不做闪卡 —— 靠时间替你筛出真正学会的词</li>
+            <li>· 每份 Headlist 建议 20–25 词，短一点也可以。抄写完成后再放下这份列表</li>
+            <li>· 冷却的日子不翻它、不蒸馏。去学习模式听读、跟读别的内容，这些练习算进今日目标</li>
+            <li>· 冷却 {settings.cooldownDays} 天后回来蒸馏：只保留还没记住的。不靠闪卡逼回忆</li>
           </ul>
           <Link to="/new" className="btn btn-gold mt-4 self-start">
             <PlusCircle size={15} /> 新建 Headlist
           </Link>
         </div>
       </section>
+
+      <LevelPaths />
     </div>
+  )
+}
+
+function LevelPaths() {
+  return (
+    <section className="card p-5">
+      <div className="text-sm font-semibold">B1 和《走遍德国》</div>
+      <p className="mt-2 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+        备考 Goethe / telc B1，或正在学《走遍德国》，都可以从这里建 Headlist。词库含 A1、A2 和 B1–B2，不是只有 B2。按课次对齐的词表还没做。
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <Link to="/new?from=b1" className="btn btn-gold h-9">
+          B1 入口
+        </Link>
+        <Link to="/new?from=zoubian" className="btn btn-ghost h-9">
+          《走遍德国》入口
+        </Link>
+      </div>
+    </section>
   )
 }
 
@@ -160,22 +206,27 @@ function Welcome() {
         <h1 className="text-2xl font-bold tracking-tight">
           Willkommen bei <span className="text-gold-gradient">Wortweg</span>
         </h1>
-        <p className="mx-auto mt-3 max-w-md text-sm text-zinc-500 dark:text-zinc-400">
-          用 Goldlist 蒸馏法走向德语 B2：写下 20–25 个词，冷却两周，回来只带走还没记住的。
-          重复几轮，剩下的就是真正的长期记忆。
+        <p className="mx-auto mt-3 max-w-md text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+          面向准备 Goethe / telc B1 的成人，也适合已经在冲 B2 的人。Goldlist 还是三步：认真抄写，冷却大约两周，再蒸馏。词库里有 A1、A2 和 B1–B2，不是只收 B2。
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <Link to="/new" className="btn btn-gold">
-            <PlusCircle size={16} /> 从词库创建第一份 Headlist
+          <Link to="/new?from=b1" className="btn btn-gold">
+            <PlusCircle size={16} /> 我在备考 B1
+          </Link>
+          <Link to="/new?from=zoubian" className="btn btn-ghost">
+            我在学《走遍德国》
+          </Link>
+          <Link to="/new" className="btn btn-ghost">
+            自己从词库挑
           </Link>
         </div>
       </motion.div>
 
       <div className="grid gap-3 sm:grid-cols-3">
         {[
-          { icon: PenLine, t: '1 · 写下', d: '从内置 B1–B2 词库挑 20–25 词，认真抄写一遍' },
-          { icon: ListChecks, t: '2 · 冷却', d: '整整两周不碰它 —— 大脑自己在后台消化' },
-          { icon: FlaskConical, t: '3 · 蒸馏', d: '回来逐条自问"记住了吗"，只保留没记住的' },
+          { icon: PenLine, t: '1 · 写下', d: '挑一批词（B1 主题或教材里的 6 个词也行），在这里逐词抄写。抄完冷却才开始' },
+          { icon: ListChecks, t: '2 · 冷却', d: '这几天不翻这份列表。去学习模式听读、跟读，今日目标按这些练习算' },
+          { icon: FlaskConical, t: '3 · 蒸馏', d: '冷却结束后逐条问自己记住了没，只把没记住的留到下一轮' },
         ].map(({ icon: Icon, t, d }) => (
           <div key={t} className="card p-4">
             <Icon size={18} className="mb-2 text-amber-500 dark:text-amber-300" />

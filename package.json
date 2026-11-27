@@ -11,6 +11,7 @@
     "bank:check": "node scripts/bank-check.cjs",
     "numbers:check": "node scripts/numbers-check.ts",
     "tts:check": "node scripts/tts-proxy-check.ts",
+    "phase1:check": "node --experimental-strip-types scripts/phase1-check.ts",
     "pdf:import": "node scripts/pdf-dump.cjs && node scripts/pdf-import.cjs"
   },
   "dependencies": {

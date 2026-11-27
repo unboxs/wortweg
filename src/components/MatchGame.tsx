@@ -64,6 +64,7 @@ export default function MatchGame({ onExit }: { onExit: () => void }) {
         return next
       })
       setSelWord(null)
+      useStore.getState().recordStudy(1)
       if (willComplete) {
         window.setTimeout(() => {
           setRound((r) => r + 1)
