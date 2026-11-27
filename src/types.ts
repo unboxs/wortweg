@@ -79,7 +79,7 @@ export interface Settings {
   slowRate: number
   /** 指定德语语音的 voiceURI（空 = 自动选择） */
   voiceURI: string
-  /** 蒸馏时自动朗读 */
+  /** 出现词条时自动朗读（抄写、教学、蒸馏）。关掉后仍可手动点朗读。 */
   autoSpeak: boolean
   /** 蒸馏时开启"抄写模式"（可选仪式感，不强制） */
   writeMode: boolean

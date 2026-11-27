@@ -31,6 +31,7 @@ const exercises = await server.ssrLoadModule('/src/lib/exercises.ts')
 const ipa = await server.ssrLoadModule('/src/lib/ipa.ts')
 const labels = await server.ssrLoadModule('/src/lib/labels.ts')
 const shadow = await server.ssrLoadModule('/src/lib/shadow.ts')
+const copyPlayback = await server.ssrLoadModule('/src/lib/copy-playback.ts')
 const storeMod = await server.ssrLoadModule('/src/store.ts')
 
 const DAY = gold.DAY as number
@@ -39,6 +40,17 @@ let failed = 0
 function check(name: string, fn: () => void) {
   try {
     fn()
+    console.log(`ok  ${name}`)
+  } catch (err) {
+    failed++
+    console.error(`FAIL  ${name}`)
+    console.error(err)
+  }
+}
+
+async function checkAsync(name: string, fn: () => Promise<void>) {
+  try {
+    await fn()
     console.log(`ok  ${name}`)
   } catch (err) {
     failed++
@@ -186,6 +198,54 @@ check('直接蒸馏冷却中的列表不会记成长期记忆', () => {
   assert.ok(result)
   assert.equal(result.mastered, 0)
   assert.equal(useStore.getState().lists.find((l: { id: string }) => l.id === id).entries[0].mastered, false)
+})
+
+check('抄写页出现时只安排一遍常速', () => {
+  assert.deepEqual(copyPlayback.copyAutoCue(true, ' der Test ', 1), { text: 'der Test', rate: 1 })
+  assert.equal(copyPlayback.copyAutoCue(false, 'der Test', 1), null)
+  assert.equal(copyPlayback.copyAutoCue(true, '   ', 1), null)
+})
+
+await checkAsync('抄对后只读一遍慢速，播完才算结束', async () => {
+  const calls: { text: string; rate: number }[] = []
+  let settled = false
+  let release: () => void = () => {}
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const pending = copyPlayback
+    .afterCorrectCopy({
+      autoSpeak: true,
+      text: 'der Test',
+      slowRate: 0.6,
+      play: async (text: string, rate: number) => {
+        calls.push({ text, rate })
+        await gate
+      },
+    })
+    .then(() => {
+      settled = true
+    })
+  await Promise.resolve()
+  assert.equal(settled, false)
+  assert.deepEqual(calls, [{ text: 'der Test', rate: 0.6 }])
+  release()
+  await pending
+  assert.equal(settled, true)
+  assert.equal(calls.length, 1)
+})
+
+await checkAsync('关掉自动朗读时，抄对后不播放并立刻可以翻页', async () => {
+  let played = false
+  await copyPlayback.afterCorrectCopy({
+    autoSpeak: false,
+    text: 'der Punkt',
+    slowRate: 0.6,
+    play: async () => {
+      played = true
+    },
+  })
+  assert.equal(played, false)
 })
 
 await server.close()

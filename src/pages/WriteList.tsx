@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Check, X } from 'lucide-react'
 import { useStore } from '../store'
+import { useSpeech } from '../hooks/useSpeech'
 import { transcribed } from '../lib/exercises'
+import { afterCorrectCopy, copyAutoCue } from '../lib/copy-playback'
 import { Gloss } from '../components/Gloss'
 import { TtsNotice } from '../components/TtsNotice'
 import { IpaLine } from '../components/IpaLine'
@@ -16,8 +18,14 @@ export default function WriteList() {
   const list = useStore((s) => s.lists.find((l) => l.id === id))
   const markCopied = useStore((s) => s.markCopied)
   const finishWriting = useStore((s) => s.finishWriting)
+  const autoSpeak = useStore((s) => s.settings.autoSpeak)
+  const rate = useStore((s) => s.settings.rate)
+  const slowRate = useStore((s) => s.settings.slowRate)
+  const { speak } = useSpeech()
   const [typed, setTyped] = useState('')
   const [wrong, setWrong] = useState(false)
+  const [holding, setHolding] = useState(false)
+  const playedId = useRef<string | null>(null)
 
   const pending = useMemo(() => {
     if (!list) return []
@@ -31,7 +39,17 @@ export default function WriteList() {
   useEffect(() => {
     setTyped('')
     setWrong(false)
+    setHolding(false)
   }, [entry?.id])
+
+  // 词一出现：自动朗读开着时，只读一遍常速。同一个词不重复自动读。
+  useEffect(() => {
+    if (!list?.writePending || !entry) return
+    const cue = copyAutoCue(autoSpeak, entry.german, rate)
+    if (!cue || playedId.current === entry.id) return
+    playedId.current = entry.id
+    void speak(cue.text, cue.rate)
+  }, [list?.writePending, entry?.id, entry?.german, autoSpeak, rate, speak])
 
   if (!list)
     return (
@@ -56,7 +74,8 @@ export default function WriteList() {
     )
   }
 
-  const submit = () => {
+  const submit = async () => {
+    if (holding) return
     if (!entry) {
       finishWriting(list.id)
       nav(`/lists/${list.id}`)
@@ -66,8 +85,21 @@ export default function WriteList() {
       setWrong(true)
       return
     }
-    markCopied(list.id, entry.id)
+    const german = entry.german
+    const entryId = entry.id
     const remaining = pending.length - 1
+    if (autoSpeak) setHolding(true)
+    try {
+      await afterCorrectCopy({
+        autoSpeak,
+        text: german,
+        slowRate,
+        play: (text, playRate) => speak(text, playRate),
+      })
+    } finally {
+      if (autoSpeak) setHolding(false)
+    }
+    markCopied(list.id, entryId)
     if (remaining <= 0) {
       finishWriting(list.id)
       nav(`/lists/${list.id}`)
@@ -111,6 +143,11 @@ export default function WriteList() {
             <div className="mt-3 flex justify-center">
               <SpeakButtons text={entry.german} />
             </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+              {autoSpeak
+                ? '自动朗读：出现时一遍常速，抄对后再一遍慢速。上面的按钮可以重听。'
+                : '自动朗读已关闭。上面的按钮仍然可以重听。'}
+            </p>
             <TtsNotice text={entry.german} />
             <div className="mx-auto mt-6 max-w-xs">
               <input
@@ -127,7 +164,7 @@ export default function WriteList() {
                   setTyped(e.target.value)
                   setWrong(false)
                 }}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
+                onKeyDown={(e) => e.key === 'Enter' && void submit()}
               />
             </div>
             {wrong && (
@@ -135,9 +172,9 @@ export default function WriteList() {
                 不对。对照上面的词再抄一遍。
               </p>
             )}
-            <button type="button" className="btn btn-gold mt-5 h-12 min-w-40" onClick={submit}>
+            <button type="button" className="btn btn-gold mt-5 h-12 min-w-40" onClick={() => void submit()} disabled={holding}>
               <Check size={16} />
-              {pending.length === 1 ? '抄完，开始冷却' : '下一个'}
+              {holding ? '慢速朗读中…' : pending.length === 1 ? '抄完，开始冷却' : '下一个'}
             </button>
             <p className="mt-4 text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-500">
               纸上抄也很好。这里再打一遍，是为了确认抄写这一步真的发生了。长短不限，6 个词也可以。

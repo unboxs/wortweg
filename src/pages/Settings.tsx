@@ -258,9 +258,14 @@ export default function Settings() {
                 value={settings.slowRate} onChange={(e) => setSettings({ slowRate: Number(e.target.value) })} />
             </div>
           </div>
-          <label className="flex cursor-pointer items-center justify-between text-sm">
-            <span>蒸馏时自动朗读每个词</span>
-            <input type="checkbox" className="h-4 w-4 accent-amber-400"
+          <label className="flex cursor-pointer items-start justify-between gap-4 text-sm">
+            <span>
+              出现词条时自动朗读
+              <span className="mt-1 block text-[11px] font-normal leading-relaxed text-zinc-400 dark:text-zinc-500">
+                抄写页：词一出现读常速一遍，抄对后再读慢速一遍，读完才进入下一个。教学和蒸馏也会自动读。关掉后这两次不会自己开始，手动朗读按钮仍然可用。
+              </span>
+            </span>
+            <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-amber-400"
               checked={settings.autoSpeak} onChange={(e) => setSettings({ autoSpeak: e.target.checked })} />
           </label>
         </div>
