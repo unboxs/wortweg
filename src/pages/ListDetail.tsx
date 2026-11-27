@@ -26,6 +26,7 @@ import {
   roundName,
   stageOf,
 } from '../lib/goldlist'
+import { tagLabel } from '../lib/labels'
 import { IpaLine } from '../components/IpaLine'
 import { Bar, EmptyState, MasteredDot, Modal, SpeakButtons, StageBadge } from '../components/ui'
 import type { Difficulty, Entry } from '../types'
@@ -117,7 +118,11 @@ export default function ListDetail() {
               {playingIdx !== null ? <Square size={14} /> : <Play size={14} />}
               {playingIdx !== null ? '停止' : '朗读整表'}
             </button>
-            {stage === 'ready' ? (
+            {stage === 'writing' ? (
+              <button onClick={() => nav(`/write/${list.id}`)} className="btn btn-gold h-9">
+                继续抄写
+              </button>
+            ) : stage === 'ready' ? (
               <button onClick={() => nav(`/distill/${list.id}`)} className="btn btn-gold h-9">
                 <FlaskConical size={15} /> 开始蒸馏
               </button>
@@ -128,6 +133,11 @@ export default function ListDetail() {
             ) : null}
           </div>
         </div>
+        {stage === 'writing' && (
+          <div className="mt-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-900 dark:text-amber-100">
+            还没抄写完，冷却尚未开始。抄完之前不能蒸馏。
+          </div>
+        )}
         {stage === 'cooling' && (
           <div className="mt-4 flex items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-400/20 dark:bg-sky-400/10">
             <Bar pct={cooldownProgress(list, settings.cooldownDays)} />
@@ -196,13 +206,13 @@ export default function ListDetail() {
                   )}
                 </div>
                 <IpaLine text={e.german} align="start" />
-                <div className={`mt-0.5 text-sm ${e.mastered ? 'text-zinc-400 dark:text-zinc-500' : 'text-zinc-500 dark:text-zinc-400'}`}>
+                <div className={`mt-0.5 text-base ${e.mastered ? 'text-zinc-500 dark:text-zinc-400' : 'text-zinc-800 dark:text-zinc-100'}`}>
                   {meaning(e) || <span className="italic opacity-50">（释义待补充）</span>}
                 </div>
                 {e.example && <div className="mt-1 text-xs italic text-zinc-400 dark:text-zinc-500">„{e.example}“</div>}
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {e.tags.map((t) => (
-                    <span key={t} className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-400 dark:bg-white/5 dark:text-zinc-500">{t}</span>
+                    <span key={t} className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] text-zinc-500 dark:bg-white/5 dark:text-zinc-300">{tagLabel(t)}</span>
                   ))}
                   {e.difficulty && (
                     <span className="text-[10px] tracking-tighter text-zinc-300 dark:text-zinc-600">

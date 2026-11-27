@@ -19,12 +19,68 @@ export interface ExEntry {
 
 export type Gender = 'm' | 'f' | 'n'
 
-/** 从 "die Banane" 这类词条解析名词与性别 */
-export function parseNoun(german: string): { base: string; gender: Gender } | null {
+/**
+ * 从「die Banane」解析名词与性别。
+ * 以动词结尾的惯用语（das Wort ergreifen、die Nerven verlieren）不是名词，不给出冠词题。
+ * 最后一个词没大写，就当成动词短语，而不是名词短语。
+ */
+export function nounPhrase(german: string): { base: string; gender: Gender; article: string } | null {
   const m = /^(der|die|das)\s+(.+)$/i.exec(german.trim())
   if (!m) return null
-  const art = m[1].toLowerCase()
-  return { base: m[2], gender: art === 'der' ? 'm' : art === 'die' ? 'f' : 'n' }
+  const base = m[2].trim()
+  if (!base || base.includes('/') || base.includes('(')) return null
+  const words = base.split(/\s+/)
+  const last = words[words.length - 1] ?? ''
+  if (words.length >= 2 && /^[a-zäöüß]/.test(last)) return null
+  const article = m[1].toLowerCase()
+  const gender: Gender = article === 'der' ? 'm' : article === 'die' ? 'f' : 'n'
+  return { base, gender, article }
+}
+
+/** 从「die Banane」解析名词与性别。惯用语返回 null。 */
+export function parseNoun(german: string): { base: string; gender: Gender } | null {
+  const noun = nounPhrase(german)
+  if (!noun) return null
+  return { base: noun.base, gender: noun.gender }
+}
+
+const GENDER_ZH: Record<Gender, string> = { m: '阳性', f: '阴性', n: '中性' }
+
+/** 用户写下的冠词能确定性别时返回 m/f/n；ein/kein/mein 阴阳不唯一。 */
+function articleGender(text: string): Gender | 'ambiguous' | null {
+  const m = /^([A-Za-zÄÖÜäöüß]+)\s+\S/i.exec(text.trim())
+  if (!m) return null
+  const a = m[1].toLowerCase()
+  if (a === 'die' || a === 'eine' || a === 'keine' || a === 'meine') return 'f'
+  if (a === 'das') return 'n'
+  if (a === 'der') return 'm'
+  if (a === 'ein' || a === 'kein' || a === 'mein') return 'ambiguous'
+  return null
+}
+
+/** 答错后的一句中文说明。始终以「不对」开头，方便一眼看见。 */
+export function explainWrong(entry: ExEntry, ex: Exercise, attempt = ''): string {
+  const noun = nounPhrase(entry.german)
+  const picked = attempt.trim()
+  if (ex.kind === 'article' && noun) {
+    const head = `不对。「${noun.base}」是${GENDER_ZH[noun.gender]}名词`
+    if (picked && picked.toLowerCase() !== (ex.answer ?? '').toLowerCase())
+      return `${head}，这里要选「${ex.answer}」，不是「${picked}」。`
+    return `${head}，这里要选「${ex.answer}」。`
+  }
+  if (noun && (ex.kind === 'recall' || ex.kind === 'dictation' || ex.kind === 'copy' || ex.kind === 'cloze')) {
+    const gender = articleGender(picked)
+    if (gender && gender !== 'ambiguous' && gender !== noun.gender) {
+      const art = picked.split(/\s+/)[0]
+      return `不对。「${noun.base}」是${GENDER_ZH[noun.gender]}名词，冠词是「${noun.article}」，不是「${art}」。`
+    }
+    if (picked && normalizeDe(picked) === normalizeDe(noun.base))
+      return `不对。名词要带上冠词：${noun.article} ${noun.base}。`
+  }
+  if (ex.kind === 'letters') return '不对。缺的字母和词形对不上，按空位顺序再填一次。'
+  if (ex.kind === 'sentence') return '不对。语序和原句不一致，再排一次。'
+  if (ex.kind === 'article') return '不对。先看这个词是不是名词，再选对应的冠词。'
+  return '不对。再对照词条和释义写一次。'
 }
 
 export type ExerciseKind = 'copy' | 'article' | 'letters' | 'dictation' | 'cloze' | 'recall' | 'sentence'
@@ -104,9 +160,9 @@ function buildSentence(example: string): { shuffled: string[]; answer: string } 
   return { shuffled: s, answer: words.join(' ') }
 }
 
-/** 为一个词条随机抽一种题型（可用题型取决于词条特征） */
-export function buildExercise(entry: ExEntry): Exercise {
-  const noun = parseNoun(entry.german)
+/** 这个词条允许出现的题型。冠词题只给真正的名词，不给动词惯用语。 */
+export function eligibleKinds(entry: ExEntry): ExerciseKind[] {
+  const noun = nounPhrase(entry.german)
   const kinds: ExerciseKind[] = ['copy', 'dictation', 'recall']
   const letters = buildLetters(noun ? noun.base : entry.german)
   if (noun) kinds.push('article', 'article') // 冠词是德语核心痛点，权重加倍
@@ -115,6 +171,16 @@ export function buildExercise(entry: ExEntry): Exercise {
   if (clozeText) kinds.push('cloze')
   const sentence = entry.example ? buildSentence(entry.example) : null
   if (sentence) kinds.push('sentence')
+  return kinds
+}
+
+/** 为一个词条随机抽一种题型（可用题型取决于词条特征） */
+export function buildExercise(entry: ExEntry): Exercise {
+  const noun = nounPhrase(entry.german)
+  const kinds = eligibleKinds(entry)
+  const letters = buildLetters(noun ? noun.base : entry.german)
+  const clozeText = entry.example ? buildCloze(entry.example, noun ? noun.base : entry.german) : null
+  const sentence = entry.example ? buildSentence(entry.example) : null
 
   const kind = pick(kinds)
   switch (kind) {

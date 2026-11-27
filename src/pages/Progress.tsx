@@ -13,9 +13,9 @@ import {
 } from '../lib/goldlist'
 import { ACHIEVEMENTS, levelProgress } from '../lib/xp'
 import { Bar, SectionTitle, Stat, TreeIcon } from '../components/ui'
-import { BANK } from '../data/bank'
+import { tagLabel } from '../lib/labels'
 
-const themeName = (id: string) => BANK.find((c) => c.id === id)?.name ?? id
+const themeName = (id: string) => tagLabel(id)
 
 export default function Progress() {
   const lists = useStore((s) => s.lists)

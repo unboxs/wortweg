@@ -18,8 +18,11 @@ import type {
 } from './types'
 import {
   activeEntries,
+  canDistill,
+  clampCooldown,
   dayKey,
   normalizeDe,
+  studyCountsForGoal,
   totalMastered,
   uid,
   yesterdayKey,
@@ -42,8 +45,8 @@ interface Store {
   streakDays: number
   bestStreak: number
   lastActiveDay: string | null
-  /** 每日蒸馏检视数 */
-  daily: { day: string; count: number }
+  /** 每日进度：count = 蒸馏检视，practice = 还不能蒸馏时的学习模式 */
+  daily: { day: string; count: number; practice: number }
   goalCelebratedDay: string | null
   history: DistillEvent[]
   achievements: string[]
@@ -52,6 +55,12 @@ interface Store {
 
   setSettings: (patch: Partial<Settings>) => void
   createList: (name: string, seeds: NewEntrySeed[], theme?: string) => string
+  /** 抄写页逐词记下。未完成抄写的列表才能调用。 */
+  markCopied: (listId: string, entryId: string) => void
+  /** 全部抄完后才开始冷却。返回是否成功。 */
+  finishWriting: (id: string) => boolean
+  /** 学习模式练过一个词。没有可蒸馏列表时计入今日目标。 */
+  recordStudy: (n?: number) => void
   renameList: (id: string, name: string) => void
   deleteList: (id: string) => void
   addEntries: (id: string, seeds: NewEntrySeed[]) => void
@@ -108,7 +117,10 @@ function finalize(
       ? s.streakDays + 1
       : 1
     : s.streakDays
-  const daily = s.daily.day === today ? s.daily : { day: today, count: 0 }
+  const daily =
+    s.daily.day === today
+      ? { day: today, count: s.daily.count, practice: s.daily.practice ?? 0 }
+      : { day: today, count: 0, practice: 0 }
   const nextXp = s.xp + xpDelta + (isNewDay ? XP.activeDay : 0)
   const lists = base.lists ?? s.lists
   const history = base.history ?? s.history
@@ -154,7 +166,7 @@ export const useStore = create<Store>()(
       streakDays: 0,
       bestStreak: 0,
       lastActiveDay: null,
-      daily: { day: dayKey(), count: 0 },
+      daily: { day: dayKey(), count: 0, practice: 0 },
       goalCelebratedDay: null,
       history: [],
       achievements: [],
@@ -170,6 +182,8 @@ export const useStore = create<Store>()(
           round: 0,
           createdAt: Date.now(),
           lastActivityAt: Date.now(),
+          writePending: true,
+          copiedIds: [],
           entries: seeds.map(makeEntry),
         }
         const r = finalize(get, { lists: [list, ...get().lists] }, XP.createList)
@@ -208,10 +222,87 @@ export const useStore = create<Store>()(
           ),
         })),
 
+      markCopied: (listId, entryId) =>
+        set((s) => ({
+          lists: s.lists.map((l) => {
+            if (l.id !== listId || !l.writePending) return l
+            const copied = new Set(l.copiedIds ?? [])
+            copied.add(entryId)
+            return { ...l, copiedIds: [...copied] }
+          }),
+        })),
+
+      finishWriting: (id) => {
+        const s = get()
+        const list = s.lists.find((l) => l.id === id)
+        if (!list?.writePending) return false
+        const copied = new Set(list.copiedIds ?? [])
+        if (list.entries.length === 0 || !list.entries.every((e) => copied.has(e.id))) return false
+        const now = Date.now()
+        const lists = s.lists.map((l) =>
+          l.id === id ? { ...l, writePending: false, copiedIds: undefined, lastActivityAt: now } : l,
+        )
+        const waiting = studyCountsForGoal(lists, s.settings.cooldownDays, now)
+        const r = finalize(get, { lists }, 0)
+        const today = dayKey()
+        const base = r.patch.daily ?? { day: today, count: 0, practice: 0 }
+        const count = base.count
+        const practice = base.practice + (waiting ? list.entries.length : 0)
+        const shown = waiting ? count + practice : count
+        const days = clampCooldown(s.settings.cooldownDays)
+        const patch: Partial<Store> = {
+          ...r.patch,
+          daily: { day: today, count, practice },
+          toasts: [
+            ...(r.patch.toasts ?? []),
+            {
+              id: uid(),
+              kind: 'goal',
+              title: '抄写完成，冷却开始',
+              desc: `这 ${days} 天不用复习这份列表。去学习模式听读、跟读，会计入今日目标。`,
+            },
+          ],
+        }
+        if (waiting && s.settings.dailyGoal > 0 && shown >= s.settings.dailyGoal && s.goalCelebratedDay !== today) {
+          patch.goalCelebratedDay = today
+          patch.toasts = [
+            ...(patch.toasts ?? []),
+            { id: uid(), kind: 'goal', title: '今日目标达成', desc: `冷却期里已完成 ${shown} 个词条` },
+          ]
+        }
+        set(patch)
+        return true
+      },
+
+      recordStudy: (n = 1) => {
+        const add = Math.max(0, Math.floor(n))
+        if (!add) return
+        const s = get()
+        const today = dayKey()
+        const waiting = studyCountsForGoal(s.lists, s.settings.cooldownDays)
+        if (!waiting && s.lastActiveDay === today) return
+        const r = finalize(get, {}, 0)
+        const base = r.patch.daily ?? { day: today, count: 0, practice: 0 }
+        const count = base.count
+        const practice = base.practice + (waiting ? add : 0)
+        const shown = waiting ? count + practice : count
+        const patch: Partial<Store> = { ...r.patch, daily: { day: today, count, practice } }
+        if (waiting && s.settings.dailyGoal > 0 && shown >= s.settings.dailyGoal && s.goalCelebratedDay !== today) {
+          patch.goalCelebratedDay = today
+          patch.toasts = [
+            ...(patch.toasts ?? []),
+            { id: uid(), kind: 'goal', title: '今日目标达成', desc: `冷却期里已在学习模式练了 ${shown} 个词条` },
+          ]
+        }
+        set(patch)
+      },
+
       distillList: (id, remembered) => {
         const s = get()
         const list = s.lists.find((l) => l.id === id)
         if (!list) return null
+        // 冷却、未抄写、已完成都不能通过直接打开 /distill/:id 记成长期记忆。
+        if (!canDistill(list, s.settings.cooldownDays)) return null
         const active = activeEntries(list)
         const rememberedSet = new Set(remembered)
         const mastered = active.filter((e) => rememberedSet.has(e.id))
@@ -242,7 +333,8 @@ export const useStore = create<Store>()(
         // 每日目标进度 + 一次性庆祝
         const today = dayKey()
         const count = (r.patch.daily?.count ?? 0) + active.length
-        const patch: Partial<Store> = { ...r.patch, daily: { day: today, count } }
+        const practice = r.patch.daily?.practice ?? 0
+        const patch: Partial<Store> = { ...r.patch, daily: { day: today, count, practice } }
         if (
           s.settings.dailyGoal > 0 &&
           count >= s.settings.dailyGoal &&
@@ -278,17 +370,26 @@ export const useStore = create<Store>()(
             if (typeof l?.id !== 'string' || !Array.isArray(l?.entries))
               return { ok: false, error: '列表结构不合法' }
           set({
-            lists,
             settings: {
               ...defaultSettings,
               ...(src?.settings ?? {}),
               ttsSource: migrateTtsSource(src?.settings?.ttsSource),
+              cooldownDays: clampCooldown(src?.settings?.cooldownDays ?? defaultSettings.cooldownDays),
             },
             xp: src?.xp ?? 0,
             streakDays: src?.streakDays ?? 0,
             bestStreak: src?.bestStreak ?? 0,
             lastActiveDay: src?.lastActiveDay ?? null,
-            daily: src?.daily ?? { day: dayKey(), count: 0 },
+            lists: lists.map((l: GList) => ({
+              ...l,
+              writePending: l.writePending === true,
+              copiedIds: l.writePending === true ? l.copiedIds : undefined,
+            })),
+            daily: {
+              day: typeof src?.daily?.day === 'string' ? src.daily.day : dayKey(),
+              count: typeof src?.daily?.count === 'number' ? src.daily.count : 0,
+              practice: typeof src?.daily?.practice === 'number' ? src.daily.practice : 0,
+            },
             goalCelebratedDay: src?.goalCelebratedDay ?? null,
             history: Array.isArray(src?.history) ? src.history : [],
             achievements: Array.isArray(src?.achievements) ? src.achievements : [],
@@ -307,7 +408,7 @@ export const useStore = create<Store>()(
           streakDays: 0,
           bestStreak: 0,
           lastActiveDay: null,
-          daily: { day: dayKey(), count: 0 },
+          daily: { day: dayKey(), count: 0, practice: 0 },
           goalCelebratedDay: null,
           history: [],
           achievements: [],
@@ -319,10 +420,31 @@ export const useStore = create<Store>()(
     }),
     {
       name: 'wortweg-storage',
-      version: 2,
+      version: 3,
       migrate: (persisted) => {
-        const state = persisted as { settings?: { ttsSource?: string } }
-        if (state?.settings) state.settings.ttsSource = migrateTtsSource(state.settings.ttsSource)
+        const state = persisted as {
+          settings?: { ttsSource?: string; cooldownDays?: number }
+          daily?: { day?: string; count?: number; practice?: number }
+          lists?: GList[]
+        }
+        if (state?.settings) {
+          state.settings.ttsSource = migrateTtsSource(state.settings.ttsSource)
+          if (typeof state.settings.cooldownDays === 'number')
+            state.settings.cooldownDays = clampCooldown(state.settings.cooldownDays)
+        }
+        if (state?.daily) {
+          if (typeof state.daily.practice !== 'number') state.daily.practice = 0
+          if (typeof state.daily.count !== 'number') state.daily.count = 0
+        }
+        // 旧列表没有 writePending。不要改 lastActivityAt，冷却时钟保持原样。
+        if (Array.isArray(state?.lists)) {
+          for (const l of state.lists) {
+            if (l.writePending !== true) {
+              l.writePending = false
+              l.copiedIds = undefined
+            }
+          }
+        }
         return state
       },
       // toasts 是瞬态的，不落盘

@@ -1,5 +1,5 @@
 // ─── TTS：系统语音，以及经本站代理的 VoiceRSS / ElevenLabs ───────────────
-// 无语音环境（个别浏览器/无障碍设置关闭）时静默降级，按钮仍可点击但不发声。
+// 读不出来时必须发出 wortweg-tts-status，界面上说明原因，不能静默跳过。
 // VoiceRSS / ElevenLabs 的密钥只在 Cloudflare 上，浏览器只请求 /api/tts。
 
 import { isProxySource, missingProxySecret, proxyTtsPath, type ProxySource } from '../../functions/tts-contract.ts'
@@ -108,13 +108,33 @@ function refreshVoices(): void {
   }
 }
 
+export const TTS_STATUS_EVENT = 'wortweg-tts-status'
+
+export type TtsStatus =
+  | { state: 'ok' }
+  | { state: 'silent'; reason: 'no-german-voice' | 'unsupported' | 'proxy-failed' | 'unconfigured'; secret?: string }
+
+let ttsStatus: TtsStatus = { state: 'ok' }
+
+export function readTtsStatus(): TtsStatus {
+  return ttsStatus
+}
+
+export function publishTtsStatus(status: TtsStatus): void {
+  ttsStatus = status
+  if (typeof window === 'undefined') return
+  window.dispatchEvent(new CustomEvent(TTS_STATUS_EVENT, { detail: status }))
+}
+
 function warnNoGermanVoice(): void {
+  // 每次失败都更新界面状态。提示条只弹一次，避免整表连读时刷屏。
+  publishTtsStatus({ state: 'silent', reason: 'no-german-voice' })
   if (warnedNoGerman) return
   warnedNoGerman = true
   useStore.getState().pushToast({
     kind: 'goal',
-    title: '未检测到德语语音',
-    desc: 'Windows：设置 → 时间和语言 → 添加德语（勾选语音包）后重启浏览器；或改用在线发音源',
+    title: '这次没有读出来',
+    desc: '没有德语系统语音。可以改用 VoiceRSS 或 ElevenLabs，页面上会一直显示这个说明。',
   })
 }
 
@@ -168,6 +188,7 @@ export function armProxyPreview(): void {
 function markProxyReady(): void {
   warnedUnconfigured = false
   publishProxyStatus({ state: 'ready' })
+  publishTtsStatus({ state: 'ok' })
 }
 
 async function explainProxyFailure(url: string): Promise<{ kind: 'unconfigured'; secret: string } | { kind: 'down' }> {
@@ -308,13 +329,17 @@ let mobileAudioGen = 0
 let settleMobileAudio: (() => void) | null = null
 let warnedMobileDown = false
 
-function warnMobileSpeechFailed(): void {
+function warnMobileSpeechFailed(reason: 'no-german-voice' | 'proxy-failed' = 'no-german-voice'): void {
+  publishTtsStatus({ state: 'silent', reason })
   if (warnedMobileDown) return
   warnedMobileDown = true
   useStore.getState().pushToast({
     kind: 'goal',
-    title: '手机上暂时没有声音',
-    desc: '没有可用的德语系统语音。可以在设置里改用 VoiceRSS 或 ElevenLabs，或在系统里下载德语语音后再试。',
+    title: '这次没有读出来',
+    desc:
+      reason === 'proxy-failed'
+        ? '在线发音失败，这台设备也没有德语系统语音。可以换一个在线源，或稍后再试。'
+        : '没有可用的德语系统语音。可以改用 VoiceRSS 或 ElevenLabs，页面上会一直显示这个说明。',
   })
 }
 
@@ -584,6 +609,7 @@ async function utterOnMobile(text: string, opts: SpeakOpts, my: number): Promise
   const slow = useStore.getState().settings.slowRate
 
   if (source === 'system' && voice) {
+    publishTtsStatus({ state: 'ok' })
     await utterMobileSystem(text, opts, my)
     if (opts.thenSlow && my === token) await utterMobileSystem(text, { ...opts, rate: slow }, my)
     return
@@ -604,6 +630,7 @@ async function utterOnMobile(text: string, opts: SpeakOpts, my: number): Promise
       const problem = explainProxyFailure(url)
       const lateVoice = ttsSupported() ? germanVoiceFor(opts.voiceURI) : null
       if (lateVoice) {
+        publishTtsStatus({ state: 'ok' })
         void problem.then(warnProxyProblem)
         await utterMobileSystem(text, opts, my)
         if (opts.thenSlow && my === token) await utterMobileSystem(text, { ...opts, rate: slow }, my)
@@ -611,8 +638,12 @@ async function utterOnMobile(text: string, opts: SpeakOpts, my: number): Promise
       }
       const settled = await problem
       if (my !== token) return
-      if (settled.kind === 'unconfigured') warnProxyProblem(settled)
-      else warnMobileSpeechFailed()
+      if (settled.kind === 'unconfigured') {
+        publishTtsStatus({ state: 'silent', reason: 'unconfigured', secret: settled.secret })
+        warnProxyProblem(settled)
+      } else {
+        warnMobileSpeechFailed('proxy-failed')
+      }
     }
     return
   }
@@ -689,6 +720,7 @@ function guardedSystemUtter(text: string, opts: { rate?: number; voiceURI?: stri
     warnNoGermanVoice()
     return Promise.resolve()
   }
+  publishTtsStatus({ state: 'ok' })
   return utterSystem(text, opts)
 }
 
@@ -704,6 +736,12 @@ export function stopSpeaking(): void {
  *  在线源失败自动回落系统语音；系统源无德语语音则静默提示。 */
 async function utterSystemPair(text: string, opts: SpeakOpts): Promise<void> {
   const my = token
+  if (!voices.length) refreshVoices()
+  if (!resolveVoice(opts.voiceURI ?? '')) {
+    warnNoGermanVoice()
+    return
+  }
+  publishTtsStatus({ state: 'ok' })
   await utterSystem(text, opts)
   if (!opts.thenSlow || my !== token) return
   await utterSystem(text, { ...opts, rate: useStore.getState().settings.slowRate })
@@ -719,8 +757,19 @@ function utterAny(text: string, opts: SpeakOpts): Promise<void> {
   })
 }
 
+function noteUnsupported(): void {
+  publishTtsStatus({ state: 'silent', reason: 'unsupported' })
+  if (warnedNoGerman) return
+  warnedNoGerman = true
+  useStore.getState().pushToast({
+    kind: 'goal',
+    title: '这个浏览器不能朗读',
+    desc: '没有语音接口。可以改用在线发音源；失败时页面上会说明原因。',
+  })
+}
+
 /** 朗读一段德语文本；resolve 在朗读结束/取消时触发。
- *  没有可用德语语音时拒绝发声并提示——绝不用错误语言的嗓音读德语。 */
+ *  没有可用德语语音时拒绝发声并在界面上说明——绝不用错误语言的嗓音读德语，也不静默跳过。 */
 export function speak(text: string, opts: SpeakOpts = {}): Promise<void> {
   if (!text.trim()) return Promise.resolve()
   // 手机走独立路径：同步开声、无语音时改播在线音频。桌面逻辑保持原样。
@@ -730,7 +779,10 @@ export function speak(text: string, opts: SpeakOpts = {}): Promise<void> {
     stopSpeaking() // 取消当前播放，并使正在进行的序列作废
     return utterAny(text, opts)
   }
-  if (!ttsSupported()) return Promise.resolve()
+  if (!ttsSupported()) {
+    noteUnsupported()
+    return Promise.resolve()
+  }
   if (!voices.length) refreshVoices()
   const v = resolveVoice(opts.voiceURI ?? '')
   if (!v) {
@@ -754,7 +806,10 @@ export async function speakSequence(
     return
   }
   if (activeSource() === 'system') {
-    if (!ttsSupported()) return
+    if (!ttsSupported()) {
+      noteUnsupported()
+      return
+    }
     if (!voices.length) refreshVoices()
     if (!resolveVoice(opts.voiceURI ?? '')) {
       warnNoGermanVoice()

@@ -17,6 +17,7 @@ import { Bar, EmptyState, StageBadge } from '../components/ui'
 
 const TABS: { key: ListStage | 'all'; label: string }[] = [
   { key: 'all', label: '全部' },
+  { key: 'writing', label: '待抄写' },
   { key: 'ready', label: '可蒸馏' },
   { key: 'cooling', label: '冷却中' },
   { key: 'done', label: '已完成' },
@@ -33,7 +34,7 @@ export default function Lists() {
     .sort((a, b) => {
       // 可蒸馏优先（最久未动最前），其余按最近活动倒序
       if (a.stage !== b.stage) {
-        const w = (s: ListStage) => (s === 'ready' ? 0 : s === 'cooling' ? 1 : 2)
+        const w = (s: ListStage) => (s === 'writing' ? 0 : s === 'ready' ? 1 : s === 'cooling' ? 2 : 3)
         return w(a.stage) - w(b.stage)
       }
       return b.l.lastActivityAt - a.l.lastActivityAt

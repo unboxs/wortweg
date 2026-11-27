@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Wortweg · 德语词汇蒸馏",
   "short_name": "Wortweg",
-  "description": "以 Goldlist 蒸馏法为核心的德语 B2 词汇工具",
+  "description": "用 Goldlist 蒸馏法学德语词汇，面向 B1 与 B2。数据只存在浏览器里。",
   "lang": "zh-CN",
   "dir": "ltr",
   "start_url": "/",

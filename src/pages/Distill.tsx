@@ -4,7 +4,9 @@ import { motion } from 'framer-motion'
 import { ArrowRight, Check, FlaskConical, Gem, PenLine, Turtle, TrendingUp, Volume2, X } from 'lucide-react'
 import { useStore } from '../store'
 import { useSpeech } from '../hooks/useSpeech'
-import { activeEntries, normalizeDe, roundName } from '../lib/goldlist'
+import { activeEntries, canDistill, clampCooldown, daysLeft, normalizeDe, roundName, stageOf } from '../lib/goldlist'
+import { Gloss } from '../components/Gloss'
+import { TtsNotice } from '../components/TtsNotice'
 import { IpaLine } from '../components/IpaLine'
 import { Bar, EmptyState, Modal } from '../components/ui'
 import type { DistillResult, GList } from '../types'
@@ -31,10 +33,11 @@ export default function Distill() {
 
   const judge = useCallback(
     (got: boolean) => {
-      if (!list || !entry) return
+      if (!list || !entry || !canDistill(list, settings.cooldownDays)) return
       const next = got ? [...remembered, entry.id] : remembered
       if (idx + 1 >= active.length) {
-        setResult(distillList(list.id, next))
+        const outcome = distillList(list.id, next)
+        if (outcome) setResult(outcome)
       } else {
         const upcoming = active[idx + 1]
         if (settings.autoSpeak && upcoming) {
@@ -89,6 +92,29 @@ export default function Distill() {
     )
 
   if (result) return <Summary list={list} result={result} />
+
+  const stage = stageOf(list, settings.cooldownDays)
+  if (stage === 'writing' || stage === 'cooling') {
+    const left = daysLeft(list, settings.cooldownDays)
+    return (
+      <div className="flex min-h-dvh items-center justify-center p-4">
+        <div className="card w-full max-w-md p-7">
+          <h1 className="text-xl font-bold tracking-tight">{stage === 'writing' ? '还没抄写完' : '还在冷却'}</h1>
+          <p className="mt-3 text-sm leading-relaxed text-zinc-600 dark:text-zinc-300">
+            {stage === 'writing'
+              ? '这份列表要先逐词抄写，冷却才会开始。直接打开蒸馏地址也不会把词记成长期记忆。'
+              : `还要 ${left} 天才能蒸馏（冷却期 ${clampCooldown(settings.cooldownDays)} 天）。直接打开这个地址也不能提前蒸馏。`}
+          </p>
+          <div className="mt-5 flex gap-2">
+            <Link to={`/lists/${list.id}`} className="btn btn-ghost flex-1">返回列表</Link>
+            {stage === 'writing' && (
+              <Link to={`/write/${list.id}`} className="btn btn-gold flex-1">继续抄写</Link>
+            )}
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   if (active.length === 0)
     return (
@@ -183,11 +209,9 @@ export default function Distill() {
 
             {/* 释义稍后浮现 —— 被动吸收，不逼抢答 */}
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.5 }} className="mt-4">
-              <div className="text-lg text-zinc-500 dark:text-zinc-400">
-                {(settings.meaningLang === 'en' && entry.en ? entry.en : entry.zh) || '—'}
-              </div>
-              {entry.example && <div className="mt-3 text-sm italic text-zinc-400 dark:text-zinc-500">„{entry.example}“</div>}
-              {entry.note && <div className="mt-3 text-xs text-amber-600/80 dark:text-amber-300/70">笔记 · {entry.note}</div>}
+              <Gloss>{(settings.meaningLang === 'en' && entry.en ? entry.en : entry.zh) || '—'}</Gloss>
+              {entry.example && <div className="mt-3 text-sm italic text-zinc-600 dark:text-zinc-300">„{entry.example}“</div>}
+              {entry.note && <div className="mt-3 text-xs text-amber-700 dark:text-amber-200">笔记 · {entry.note}</div>}
             </motion.div>
 
             {/* 发音 */}
@@ -199,6 +223,7 @@ export default function Distill() {
                 <Turtle size={17} />
               </button>
             </div>
+            <TtsNotice text={entry.german} />
 
             {/* 抄写模式 */}
             {settings.writeMode && (
